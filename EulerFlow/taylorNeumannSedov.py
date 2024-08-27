@@ -45,6 +45,7 @@ class TaylorSol:
         self.residuals = np.zeros_like(self.sols)
         initial_guess = [1, 2/(gamma+1), 1]
 
+        print("Solving self-similar solution...")
         for i, xi in tqdm(enumerate(self.xi_arr), total=npts):
             ## enforcing bounds on V to keep the solution real/stable
             res = least_squares(func, initial_guess, args=(xi,),
@@ -102,18 +103,24 @@ class TaylorSol:
         print("Primative variables calculated")
 
 
-    def dispField(self):
+    def dispFields(self):
         """ Display the field variables as functions of space and time """
         fig, axes = plt.subplots(nrows=2, ncols=2)
-        def field(ax, val, desc):
-            cs = ax.pcolor(1000*self.T, self.R, val)
-            ax.set_xlabel('time (ms)')
-            ax.set_ylabel('distance (m)')
+        def field(ax, val, desc, logPlot=False):
+            if logPlot: norm='log'
+            else: norm='linear'
+            cs = ax.pcolormesh(1000*self.T, self.R, val,
+                           norm=norm, cmap='jet')
+            fig.colorbar(cs, ax=ax, label=desc)
 
         field(axes[0][0], self.rho, r"density ($kg/m^3$)")
-        field(axes[1][0], self.v, r"velocity ($m/s$)")
-        field(axes[0][1], self.p, r"Pressure ($Pa$)")
-        field(axes[1][1], self.E, r"Total Energy ($J$)")
+        field(axes[1][0], self.v, r"velocity ($m/s$)", logPlot=True)
+        field(axes[0][1], self.p, r"Pressure ($Pa$)", logPlot=True)
+        field(axes[1][1], self.E, r"Total Energy ($J$)", logPlot=True)
+        axes[1][0].set_xlabel('time (ms)')
+        axes[1][1].set_xlabel('time (ms)')
+        axes[0][0].set_ylabel('distance (m)')
+        axes[1][0].set_ylabel('distance (m)')
 
 
     def plotSelfSimilar(self):
@@ -139,4 +146,4 @@ if __name__ == '__main__':
 
     TS = TaylorSol(Eblast__J, rDomain__m)
     TS.plotSelfSimilar()
-    TS.dispField()
+    TS.dispFields()
