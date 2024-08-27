@@ -42,10 +42,10 @@ def JST_DissipFlux(W: np.array,
 class EulerSol:
     def __init__(self,
                  grid: np.array,            # computational grid
-                 order: int=0,
-                 alpha: list=[0.5, 0.5],
-                 beta: list=[0.25, 0.5],
-                 gamma: float=1.4,
+                 order: int=0,              # order of equations, 0=cartesian, 1=cylindrical/polar, 2=spherical
+                 alpha: list=[0.5, 0.5],    # dissipative flux terms for spatial differencing
+                 beta: list=[0.25, 0.5],    # dissipative flux terms for spatial differencing
+                 gamma: float=1.4,          # ratio of specific heats
                  ):
         """
         Solve Euler's system of equations describing the behavior of inviscid, compressible flow by reducing to a system of ordinary differential equations.
@@ -142,12 +142,13 @@ class EulerSol:
         
         ## calculate second-order Euler flux and dissipation flux
         Qj = JST_2ndOrderEulerFlux(F)
-        Dj = JST_DissipFlux(W, F)
+        Dj = JST_DissipFlux(W, F, self.alpha, self.beta)
         
         for stemp, qtemp, dtemp in zip(S, Qj, Dj):
-            Rj = stemp - 1 / self.dr * (qtemp - dtemp)
+            Rj = stemp[1:-1] - 1 / self.dr * (qtemp - dtemp)
         
         return np.concatenate(Rj)
+
 
 if __name__ == '__main__':
     ## define grid
