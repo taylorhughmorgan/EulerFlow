@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+"""
+Author: Hugh Morgan
+Date: 2024-08-26
+Description: Solve the Taylor-Von Neumann-Sedov analytical solution to the Euler Equations using the self-similarity variable approach.
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import least_squares
+from tqdm import tqdm
+
+class TaylorSol:
+    def __init__(self, 
+                 EBlast: float,             # blast energy released, joules
+                 rDomain: float,            # maximum radius of the domain, meters
+                 rho0__kgpm3: float=1.225,  # ambient air density, kg/m^3
+                 press0__Pa: float=101325,  # ambient air pressure, Pa
+                 npts: int=500,             # number of spatial points to solve for
+                 time_interval: str='quadratic',
+                 gamma: float=1.4,
+                 ):
+        """ Sedov solution """
+        ## gamma-dependent coefficients to the sedov problem
+        nu1 = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
+        nu2 = 5 * (gamma - 1) / (2*gamma + 1)
+        nu3 = 3.0 / (2*gamma + 1)
+        nu4 = -nu1 / (2 - gamma)
+        nu5 = -2.0 / (2 - gamma)
+
+        def func(x, xi=0.5):
+            """ system of nonlinear equations that describe the self-similar solution to the Euler equations"""
+            Z, V, G = x
+            ## common terms that appears in both Xi and G right-hand-sides (RHS)
+            common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
+            common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
+            ## describe the RHS to Z, xi, and G equations
+            rhsZ  = (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
+            rhsXi = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu1 * common_term2**nu2
+            rhsG  = (gamma + 1)/(gamma - 1) * common_term2**nu3 * common_term1**nu4 * ((gamma + 1) / (gamma - 1) * (1 - V))**nu5
+            return [Z - rhsZ, xi**5 - rhsXi, G - rhsG]
+        
+        ## looping through xi and solving the system of equation
+        self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
+        self.sols   = np.zeros((npts,3))
+        self.residuals = np.zeros_like(self.sols)
+        initial_guess = [1, 2/(gamma+1), 1]
+
+        for i, xi in tqdm(enumerate(self.xi_arr), total=npts):
+            ## enforcing bounds on V to keep the solution real/stable
+            res = least_squares(func, initial_guess, args=(xi,),
+                                bounds=((-np.inf, 1./gamma, -np.inf), (np.inf, 5/(3*gamma - 1), np.inf))
+                                )
+            self.sols[i,:] = res.x
+            self.residuals[i,:] = func(res.x, xi=xi)
+            ## use solution as next iteration's guess
+            initial_guess = res.x
+        
+        self.Z, self.V, self.G = self.sols.T
+        ## interpolating Z, V, and G vs xi
+        Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
+        V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
+        G_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.G[::-1])
+
+        ## converting to primative variables
+
+    def plotSelfSimilar(self):
+        """ Plot results of self-similar solution to the Taylor-Von Neumann-Sedov blast problem"""
+        fig, axes = plt.subplots(nrows=4)
+        def eachPlot(ax, val, desc, logPlot=False):
+            if logPlot:
+                ax.semilogy(self.xi_arr, val)
+            else:
+                ax.plot(self.xi_arr, val)
+            ax.set_ylabel(desc)
+            ax.grid(True)
+        
+        eachPlot(axes[0], self.Z, r"$Z(\xi)$")
+        eachPlot(axes[1], self.V, r"$V(\xi)$")
+        eachPlot(axes[2], self.G, r"$G(\xi)$")
+        eachPlot(axes[3], np.linalg.norm(self.residuals, axis=1), r"$residuals(\xi)$", logPlot=True)
+
+
+if __name__ == '__main__':
+    Eblast__J  = 1e4    ## blast energy
+    rDomain__m = 20     ## domain of the problem
+
+    TS = TaylorSol(Eblast__J, rDomain__m)
+    TS.plotSelfSimilar()
