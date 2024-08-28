@@ -114,9 +114,9 @@ class TaylorSol:
             fig.colorbar(cs, ax=ax, label=desc)
 
         field(axes[0][0], self.rho, r"density ($kg/m^3$)")
-        field(axes[1][0], self.v, r"velocity ($m/s$)", logPlot=True)
-        field(axes[0][1], self.p, r"Pressure ($Pa$)", logPlot=True)
-        field(axes[1][1], self.E, r"Total Energy ($J$)", logPlot=True)
+        field(axes[1][0], self.v,   r"velocity ($m/s$)", logPlot=True)
+        field(axes[0][1], self.p,   r"Pressure ($Pa$)", logPlot=True)
+        field(axes[1][1], self.E,   r"Total Energy ($J$)", logPlot=True)
         axes[1][0].set_xlabel('time (ms)')
         axes[1][1].set_xlabel('time (ms)')
         axes[0][0].set_ylabel('distance (m)')

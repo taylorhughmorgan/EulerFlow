@@ -191,11 +191,99 @@ class EulerSol:
         return np.concatenate(Rj)
 
 
+class SedovBlast:
+    def __init__(self,
+                 Diam__m: float,
+                 Len__m: float,
+                 RExpl__m: float,
+                 PExpl__Pa: float,
+                 tFinal__s: float,
+                 rho0__kgpm3: float=1.225,
+                 P0__Pa: float=101325,
+                 order: int=0,
+                 gamma: float=1.4,
+                 minNGridPts: int=500,
+                 ):
+        """
+        Convert the parameters of the Sedov Blast to nondimensional form, for speed and numerical stability.
+        """
+        self.Diam__m    = Diam__m
+        self.Len__m     = Len__m
+        self.RExpl__m   = RExpl__m
+        self.PExpl__Pa  = PExpl__Pa
+        self.P0__Pa     = P0__Pa
+        self.rho0__kgpm3= rho0__kgpm3
+        self.order      = order
+        self.gamma      = gamma
+
+        ## dimensionless parameters: scale using rho0, P0, and diameter
+        UScale  = np.sqrt(P0__Pa / rho0__kgpm3)
+        lenStar = Len__m / Diam__m
+        rExpStar = RExpl__m / Diam__m
+        pExpStar = PExpl__Pa / P0__Pa
+        tFinStar = tFinal__s * UScale / Diam__m
+
+        ## set up the radial grid, we want the grid to extend 1.5X the vehicle length and at least 10 points for the explosion
+        nGridPts = (1.5 * lenStar) / rExpStar * 10
+        self.nGridPts = int( np.ceil( max(minNGridPts, nGridPts) ) )
+
+        rMinStar = min(rExpStar / 10, lenStar / 100)
+        self.grid = np.linspace(rMinStar, 1.5*lenStar, num=self.nGridPts)
+        self.times = np.linspace(0, tFinStar, num=minNGridPts)
+        self.T, self.R = np.meshgrid(self.times, self.grid)
+
+        self.dr = self.grid[1] - self.grid[0]
+
+        ## setting the initial conditions
+        self.rho0 = np.ones_like(self.grid)
+        self.p0   = np.ones_like(self.grid)
+        self.v0   = np.zeros_like(self.grid)
+        self.p0[self.grid < rExpStar] *= pExpStar
+    
+    def solve(self,
+              method: str='RK45'):
+        """ Solve the system of partial differential equations using scipy.integrate.solve_ivp"""
+        ODEs = EulerSol(self.grid, order=self.order, gamma=self.gamma,
+                        alpha=[0.5, 0.5], beta=[0.25, 0.5])
+        y0 = ODEs.createICs(self.rho0, self.v0, self.p0)
+
+        res = solve_ivp(ODEs, [self.times.min(), self.times.max()], y0,
+                        t_eval=self.times,
+                        method=method)
+        
+        rhoStar_t, uStar_t, eStar_t, pStar_t = ODEs.conv2Primatives(res.y)
+        self.rho = rhoStar_t * self.rho0__kgpm3
+        self.u   = uStar_t * np.sqrt(self.P0__Pa / self.rho0__kgpm3)
+        self.p   = pStar_t * self.P0__Pa
+        self.E   = self.p / (self.rho * (self.gamma - 1)) + 0.5 * self.u**2
+
+
+    def dispFields(self):
+        """ Display the field variables as functions of space and time """
+        fig, axes = plt.subplots(nrows=2, ncols=2)
+        def field(ax, val, desc, logPlot=False):
+            if logPlot: norm='log'
+            else: norm='linear'
+            cs = ax.pcolormesh(1000*self.T, self.R, val,
+                           norm=norm, cmap='jet')
+            fig.colorbar(cs, ax=ax, label=desc)
+
+        field(axes[0][0], self.rho, r"density ($kg/m^3$)")
+        field(axes[1][0], self.u,   r"velocity ($m/s$)", logPlot=True)
+        field(axes[0][1], self.p,   r"Pressure ($Pa$)", logPlot=True)
+        field(axes[1][1], self.E,   r"Total Energy ($J$)", logPlot=True)
+        axes[1][0].set_xlabel('time (ms)')
+        axes[1][1].set_xlabel('time (ms)')
+        axes[0][0].set_ylabel('distance (m)')
+        axes[1][0].set_ylabel('distance (m)')
+
+
+
 if __name__ == '__main__':
     ## define grid
     rMin__m = 0.1
     rMax__m = 10
-    tMax__s = 2
+    tMax__s = 3
     nGridPts = 500
     order = 2
     rGrid = np.linspace(rMin__m, rMax__m, num=nGridPts)
@@ -204,7 +292,7 @@ if __name__ == '__main__':
     ## define initial conditions
     P0__Pa      = 1
     PExpl__Pa   = 20 * P0__Pa
-    rExpl__m    = 4
+    rExpl__m    = 3
     rho0__kgpm3 = 1
     
     rho0 = rho0__kgpm3 * np.ones_like(rGrid)
