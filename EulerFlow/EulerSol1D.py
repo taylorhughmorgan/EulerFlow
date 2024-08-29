@@ -193,44 +193,43 @@ class EulerSol:
 
 class SedovBlast:
     def __init__(self,
-                 Diam__m: float,
-                 Len__m: float,
-                 RExpl__m: float,
-                 PExpl__Pa: float,
-                 tFinal__s: float,
-                 rho0__kgpm3: float=1.225,
-                 P0__Pa: float=101325,
-                 order: int=0,
-                 gamma: float=1.4,
-                 minNGridPts: int=500,
+                 ScaleLen__m: float,        # length scale
+                 DomainLen__m: float,       # size of the domain
+                 RExpl__m: float,           # radius of explosion
+                 PExpl__Pa: float,          # pressure of explosion
+                 tFinal__s: float,          # final simulation time
+                 rho0__kgpm3: float=1.225,  # ambient air density, kg/m^3
+                 P0__Pa: float=101325,      # ambient air pressure, Pa
+                 order: int=0,              # order of the equations, 0=cartesian, 1-cylindrical, 2=spherical
+                 gamma: float=1.4,          # ratio of specific heats, N/A
+                 minNGridPts: int=500,      # minimum number of grid points
                  ):
         """
         Convert the parameters of the Sedov Blast to nondimensional form, for speed and numerical stability.
         """
-        self.Diam__m    = Diam__m
-        self.Len__m     = Len__m
-        self.RExpl__m   = RExpl__m
-        self.PExpl__Pa  = PExpl__Pa
-        self.P0__Pa     = P0__Pa
-        self.rho0__kgpm3= rho0__kgpm3
-        self.order      = order
-        self.gamma      = gamma
+        self.ScaleLen__m    = ScaleLen__m
+        self.DomainLen__m   = DomainLen__m
+        self.RExpl__m       = RExpl__m
+        self.PExpl__Pa      = PExpl__Pa
+        self.P0__Pa         = P0__Pa
+        self.rho0__kgpm3    = rho0__kgpm3
+        self.order          = order
+        self.gamma          = gamma
 
         ## dimensionless parameters: scale using rho0, P0, and diameter
         UScale  = np.sqrt(P0__Pa / rho0__kgpm3)
-        lenStar = Len__m / Diam__m
-        rExpStar = RExpl__m / Diam__m
+        lenStar = DomainLen__m / ScaleLen__m
+        rExpStar = RExpl__m / ScaleLen__m
         pExpStar = PExpl__Pa / P0__Pa
-        tFinStar = tFinal__s * UScale / Diam__m
+        tFinStar = tFinal__s * UScale / ScaleLen__m
 
-        ## set up the radial grid, we want the grid to extend 1.5X the vehicle length and at least 10 points for the explosion
-        nGridPts = (1.5 * lenStar) / rExpStar * 10
+        ## set up the radial grid, we want at least 10 points for the explosion
+        nGridPts = lenStar / rExpStar * 10
         self.nGridPts = int( np.ceil( max(minNGridPts, nGridPts) ) )
 
         rMinStar = min(rExpStar / 10, lenStar / 100)
-        self.grid = np.linspace(rMinStar, 1.5*lenStar, num=self.nGridPts)
+        self.grid = np.linspace(rMinStar, lenStar, num=self.nGridPts)
         self.times = np.linspace(0, tFinStar, num=minNGridPts)
-        self.T, self.R = np.meshgrid(self.times, self.grid)
 
         self.dr = self.grid[1] - self.grid[0]
 
@@ -239,6 +238,11 @@ class SedovBlast:
         self.p0   = np.ones_like(self.grid)
         self.v0   = np.zeros_like(self.grid)
         self.p0[self.grid < rExpStar] *= pExpStar
+
+        ## time and grid in dimensional/metric scale
+        self.r__m = self.grid * ScaleLen__m
+        self.t__s = self.times * ScaleLen__m / UScale
+        self.T__s, self.R__m = np.meshgrid(self.t__s, self.r__m)
     
     def solve(self,
               method: str='RK45'):
@@ -246,8 +250,11 @@ class SedovBlast:
         ODEs = EulerSol(self.grid, order=self.order, gamma=self.gamma,
                         alpha=[0.5, 0.5], beta=[0.25, 0.5])
         y0 = ODEs.createICs(self.rho0, self.v0, self.p0)
-
-        res = solve_ivp(ODEs, [self.times.min(), self.times.max()], y0,
+        t_range = [self.times.min(), self.times.max()]
+        r_range = [self.grid.min(), self.grid.max()]
+        
+        print(f"Solving the Euler Equation as a system of ODES. \nt_range={t_range}(dimensionless) \nnGridPts={self.nGridPts}\nr_range={r_range}(dimensionless)")
+        res = solve_ivp(ODEs, t_range, y0,
                         t_eval=self.times,
                         method=method)
         
@@ -264,12 +271,12 @@ class SedovBlast:
         def field(ax, val, desc, logPlot=False):
             if logPlot: norm='log'
             else: norm='linear'
-            cs = ax.pcolormesh(1000*self.T, self.R, val,
+            cs = ax.pcolormesh(1000*self.T__s, self.R__m, val,
                            norm=norm, cmap='jet')
             fig.colorbar(cs, ax=ax, label=desc)
 
         field(axes[0][0], self.rho, r"density ($kg/m^3$)")
-        field(axes[1][0], self.u,   r"velocity ($m/s$)", logPlot=True)
+        field(axes[1][0], self.u,   r"velocity ($m/s$)")
         field(axes[0][1], self.p,   r"Pressure ($Pa$)", logPlot=True)
         field(axes[1][1], self.E,   r"Total Energy ($J$)", logPlot=True)
         axes[1][0].set_xlabel('time (ms)')
@@ -278,15 +285,51 @@ class SedovBlast:
         axes[1][0].set_ylabel('distance (m)')
 
 
+    def plotDiscTimes(self, n_plots=20):
+        """ plots at discrete times """
+        fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True,)
+        def linPlot(ax, var, desc, log=False):
+            ## plot the solution at discrete times
+            for it, tTemp in enumerate(self.times):
+                if (it + n_plots) % n_plots == 0:
+                    t__ms = 1000 * tTemp
+                    if log:
+                        ax.semilogy(self.r__m, var[:,it], label=f"t={t__ms:.2f}ms")
+                    else:
+                        ax.plot(self.r__m, var[:,it], label=f"t={t__ms:.2f}ms")
+            ax.set_ylabel(desc)
+            ax.grid(True)
+
+        linPlot(axes[0][0], self.rho, 'density (kg/m^3)')
+        linPlot(axes[1][0], self.u,   'velocity (m/s)')
+        linPlot(axes[0][1], self.p,   'pressure (Pa)', log=True)
+        linPlot(axes[1][1], self.E,   'total energy (J)', log=True)
+        axes[1][0].set_xlabel('r (m)')
+        axes[1][1].set_xlabel('r (m)')
+        axes[1][0].legend()
 
 if __name__ == '__main__':
+    LenScale__m = 1    # length scale of the problem
+    DomainLen__m = 10   # size of the domain
+    PAmb__Pa = 101325   # ambient air pressure
+    PExpl__Pa = 20*PAmb__Pa # Explosive pressure
+    RExpl__m = 3        # radius of explosion
+    tFin__s  = 0.010    # final simulation time
+    rhoAmb__kgpm3=1.225 # ambient air density
+    orders = 2          # order of solution
+
+    Blast = SedovBlast(LenScale__m, DomainLen__m, RExpl__m, PExpl__Pa, tFin__s,
+                    P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders)
+    Blast.solve()
+    Blast.dispFields()
+    Blast.plotDiscTimes()
+    
+    ## solving it outside SedovBlast - All dimensionless
     ## define grid
     rMin__m = 0.1
-    rMax__m = 10
     tMax__s = 3
     nGridPts = 500
-    order = 2
-    rGrid = np.linspace(rMin__m, rMax__m, num=nGridPts)
+    rGrid = np.linspace(rMin__m, DomainLen__m, num=nGridPts)
     tGrid = np.linspace(0, tMax__s, num=nGridPts)
 
     ## define initial conditions
@@ -301,7 +344,7 @@ if __name__ == '__main__':
     vr0 = np.zeros_like(rGrid)
 
     ## set up system of equations
-    ES = EulerSol(rGrid, order=order)
+    ES = EulerSol(rGrid, order=orders)
     y0 = ES.createICs(rho0, vr0, p0)
 
     res = solve_ivp(ES, [tGrid.min(), tGrid.max()], y0, 
@@ -347,8 +390,8 @@ if __name__ == '__main__':
 
     linPlot(axes[0][0], rho_t, 'density (kg/m^3)')
     linPlot(axes[0][1], U_t,   'radial velocity (m/s)')
-    linPlot(axes[1][0], E_t,   'total energy (J)')
-    linPlot(axes[1][1], p_t,   'pressure (Pa)')
+    linPlot(axes[1][0], E_t,   'total energy (J)', log=True)
+    linPlot(axes[1][1], p_t,   'pressure (Pa)', log=True)
     axes[1][0].set_xlabel('r (m)')
     axes[1][1].set_xlabel('r (m)')
     axes[1][0].legend()

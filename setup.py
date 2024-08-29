@@ -10,4 +10,7 @@ setup(name='EulerFlow',
       author_email='serebrum@gmail.com',
       url='https://github.com/taylorhughmorgan/EulerFlow',
       packages=['EulerFlow'],
+      install_requires=['numpy',
+                        'matplotlib',
+                        'scipy'],
      )
