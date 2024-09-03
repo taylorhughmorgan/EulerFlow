@@ -76,11 +76,13 @@ def JST_DissipFlux(W: np.array,
 
 class EulerSol:
     def __init__(self,
-                 grid: np.array,            # computational grid
-                 order: int=0,              # order of equations, 0=cartesian, 1=cylindrical/polar, 2=spherical
-                 alpha: list=[0.5, 0.5],    # dissipative flux terms for spatial differencing
-                 beta: list=[0.25, 0.5],    # dissipative flux terms for spatial differencing
-                 gamma: float=1.4,          # ratio of specific heats
+                 grid: np.array,                # computational grid
+                 order: int=0,                  # order of equations, 0=cartesian, 1=cylindrical/polar, 2=spherical
+                 alpha: list=[0.5, 0.5],        # dissipative flux terms for spatial differencing
+                 beta: list=[0.25, 0.5],        # dissipative flux terms for spatial differencing
+                 gamma: float=1.4,              # ratio of specific heats
+                 bc_lower: str='reflective',    # boundary condition on the lower bound
+                 bc_upper: str='transmissive'   # boundary condition on the upper bound
                  ):
         """
         Solve Euler's system of equations describing the behavior of inviscid, compressible flow by reducing to a system of ordinary differential equations.
@@ -104,6 +106,16 @@ class EulerSol:
         self.ghostRho = np.ones_like(self.ghostGrid)
         self.ghostU   = np.zeros_like(self.ghostGrid)
         self.ghostE   = np.zeros_like(self.ghostGrid)
+
+        ## defining boundary conditions
+        credible_bcs = ['reflective', 'transmissive', 'extrapolated']
+        if bc_upper not in credible_bcs:
+            raise Exception(f"{bc_upper} not a credible Boundary Condition. Use {credible_bcs}.")
+        if bc_lower not in credible_bcs:
+            raise Exception(f"{bc_lower} not a credible Boundary Condition. Use {credible_bcs}.")
+        self.bc_lower = bc_lower
+        self.bc_upper = bc_upper
+
 
     def createICs(self, 
                   rho0: np.array, 
@@ -131,6 +143,37 @@ class EulerSol:
         return rho, U, E, p
     
 
+    def __applyBCs(self):
+        """ Apply Boundary conditions. """
+        ## boundary conditions on the lower bound
+        if self.bc_lower == 'reflective':
+            self.ghostU[0]   = -self.ghostU[1]
+            self.ghostE[0]   = self.ghostE[1]
+            self.ghostRho[0] = self.ghostRho[1]
+        elif self.bc_lower == 'transmissive':
+            self.ghostU[0]   = self.ghostU[1]
+            self.ghostE[0]   = self.ghostE[1]
+            self.ghostRho[0] = self.ghostRho[1]
+        elif self.bc_lower == 'extrapolated':
+            self.ghostU[0]   = 2 * self.ghostU[1] - self.ghostU[2]
+            self.ghostE[0]   = 2 * self.ghostE[1] - self.ghostE[2]
+            self.ghostRho[0] = 2 * self.ghostRho[1] - self.ghostRho[2]
+        
+        ## boundary conditions on the upper bound
+        if self.bc_upper == 'reflective':
+            self.ghostU[-1]   = -self.ghostU[-2]
+            self.ghostE[-1]   = self.ghostE[-2]
+            self.ghostRho[-1] = self.ghostRho[-2]
+        elif self.bc_upper == 'transmissive':
+            self.ghostU[-1]   = self.ghostU[-2]
+            self.ghostE[-1]   = self.ghostE[-2]
+            self.ghostRho[-1] = self.ghostRho[-2]
+        elif self.bc_upper == 'extrapolated':
+            self.ghostU[-1]   = 2 * self.ghostU[-2] - self.ghostU[-3]
+            self.ghostE[-1]   = 2 * self.ghostE[-2] - self.ghostE[-3]
+            self.ghostRho[-1] = 2 * self.ghostRho[-2] - self.ghostRho[-3]
+
+
     def __call__(self, t, x):
         """
         """
@@ -147,7 +190,7 @@ class EulerSol:
         self.ghostU[1:-1]   = u 
         self.ghostE[1:-1]   = E
         ## reflective at origin
-        self.ghostU[0]   = self.ghostU[1]
+        self.ghostU[0]   = -self.ghostU[1]
         self.ghostE[0]   = self.ghostE[1]
         self.ghostRho[0] = self.ghostRho[1]
         ## transmissive at end
@@ -321,8 +364,8 @@ if __name__ == '__main__':
     Blast = SedovBlast(LenScale__m, DomainLen__m, RExpl__m, PExpl__Pa, tFin__s,
                     P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders)
     Blast.solve()
-    Blast.dispFields()
-    Blast.plotDiscTimes()
+    #Blast.dispFields()
+    #Blast.plotDiscTimes()
     
     ## solving it outside SedovBlast - All dimensionless
     ## define grid
