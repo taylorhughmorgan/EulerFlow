@@ -113,8 +113,7 @@ class EulerSol:
             raise Exception(f"{bc_upper} not a credible Boundary Condition. Use {credible_bcs}.")
         if bc_lower not in credible_bcs:
             raise Exception(f"{bc_lower} not a credible Boundary Condition. Use {credible_bcs}.")
-        self.bc_lower = bc_lower
-        self.bc_upper = bc_upper
+        self.__lowerBC, self.__upperBC = self.__genBCs(bc_lower, bc_upper)
 
 
     def createICs(self, 
@@ -143,36 +142,43 @@ class EulerSol:
         return rho, U, E, p
     
 
-    def __applyBCs(self):
+    def __genBCs(self, bc_lower: str, bc_upper: str):
         """ Apply Boundary conditions. """
         ## boundary conditions on the lower bound
-        if self.bc_lower == 'reflective':
-            self.ghostU[0]   = -self.ghostU[1]
-            self.ghostE[0]   = self.ghostE[1]
-            self.ghostRho[0] = self.ghostRho[1]
-        elif self.bc_lower == 'transmissive':
-            self.ghostU[0]   = self.ghostU[1]
-            self.ghostE[0]   = self.ghostE[1]
-            self.ghostRho[0] = self.ghostRho[1]
-        elif self.bc_lower == 'extrapolated':
-            self.ghostU[0]   = 2 * self.ghostU[1] - self.ghostU[2]
-            self.ghostE[0]   = 2 * self.ghostE[1] - self.ghostE[2]
-            self.ghostRho[0] = 2 * self.ghostRho[1] - self.ghostRho[2]
+        if bc_lower == 'reflective':
+            def applyLowerBCs(rho, E, u):
+                u[0]   = -u[1]
+                E[0]   = E[1]
+                rho[0] = rho[1]
+        elif bc_lower == 'transmissive':
+            def applyLowerBCs(rho, E, u):
+                u[0]   = u[1]
+                E[0]   = E[1]
+                rho[0] = rho[1]
+        elif bc_lower == 'extrapolated':
+            def applyLowerBCs(rho, E, u):
+                u[0]   = 2 * u[1] - u[2]
+                E[0]   = 2 * E[1] - E[2]
+                rho[0] = 2 * rho[1] - rho[2]
         
         ## boundary conditions on the upper bound
-        if self.bc_upper == 'reflective':
-            self.ghostU[-1]   = -self.ghostU[-2]
-            self.ghostE[-1]   = self.ghostE[-2]
-            self.ghostRho[-1] = self.ghostRho[-2]
-        elif self.bc_upper == 'transmissive':
-            self.ghostU[-1]   = self.ghostU[-2]
-            self.ghostE[-1]   = self.ghostE[-2]
-            self.ghostRho[-1] = self.ghostRho[-2]
-        elif self.bc_upper == 'extrapolated':
-            self.ghostU[-1]   = 2 * self.ghostU[-2] - self.ghostU[-3]
-            self.ghostE[-1]   = 2 * self.ghostE[-2] - self.ghostE[-3]
-            self.ghostRho[-1] = 2 * self.ghostRho[-2] - self.ghostRho[-3]
+        if bc_upper == 'reflective':
+            def applyUpperBCs(rho, E, u):
+                u[-1]   = -u[-2]
+                E[-1]   = E[-2]
+                rho[-1] = rho[-2]
+        elif bc_upper == 'transmissive':
+            def applyUpperBCs(rho, E, u):
+                u[-1]   = u[-2]
+                E[-1]   = E[-2]
+                rho[-1] = rho[-2]
+        elif bc_upper == 'extrapolated':
+            def applyUpperBCs(rho, E, u):
+                u[-1]   = 2 * u[-2] - u[-3]
+                E[-1]   = 2 * E[-2] - E[-3]
+                rho[-1] = 2 * rho[-2] - rho[-3]
 
+        return applyLowerBCs, applyUpperBCs
 
     def __call__(self, t, x):
         """
@@ -189,14 +195,8 @@ class EulerSol:
         self.ghostRho[1:-1] = rho
         self.ghostU[1:-1]   = u 
         self.ghostE[1:-1]   = E
-        ## reflective at origin
-        self.ghostU[0]   = -self.ghostU[1]
-        self.ghostE[0]   = self.ghostE[1]
-        self.ghostRho[0] = self.ghostRho[1]
-        ## transmissive at end
-        self.ghostRho[-1] = self.ghostRho[-2]
-        self.ghostU[-1]   = self.ghostU[-2]
-        self.ghostE[-1]   = self.ghostE[-2]
+        self.__lowerBC(self.ghostRho, self.ghostE, self.ghostU)
+        self.__upperBC(self.ghostRho, self.ghostE, self.ghostU)
 
         ## apply equations of state
         p = self.ghostRho * (self.gamma - 1) * (self.ghostE - 0.5 * self.ghostU**2)
