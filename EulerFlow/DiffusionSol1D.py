@@ -50,26 +50,36 @@ class Diffusion:
 
 if __name__ == '__main__':
     #%% set up the grid
-    t_rel = np.linspace(0, 3, num=25)
-    grid = np.linspace(0, 10, num=300)
+    tGrid = np.linspace(0, 3, num=100)
+    rGrid  = np.linspace(0, 10, num=300)
     ## generate initial conditions
-    u0 = np.ones_like(grid)
-    u0[grid < 3] = 2
+    u0 = np.ones_like(rGrid)
+    u0[np.logical_and(rGrid > 3, rGrid < 6)] = 2
 
     ## solve the initial value problem
-    diffusion = Diffusion(grid, 1.0,
-                          bc_lower='constant:2',
+    diffusion = Diffusion(rGrid, 1.0,
+                          bc_lower='constant:1',
                           bc_upper='transmissive'
                           )
-    res = solve_ivp(diffusion, [t_rel.min(), t_rel.max()], u0, 
-                    method='DOP853', t_eval=t_rel)
+    res = solve_ivp(diffusion, [tGrid.min(), tGrid.max()], u0, 
+                    method='RK45', t_eval=tGrid)
     
     times = res.t 
     u_t   = res.y
     
-    #%% plotting
+    #%% plotting at discrete times
     fig, ax = plt.subplots()
     for it, tTemp in enumerate(times):
-        ax.plot(grid, u_t[:,it], label=f"time={tTemp:.3f}s")
+        ax.plot(rGrid, u_t[:,it], label=f"time={tTemp:.3f}s")
     ax.grid(True)
     ax.legend()
+    
+    #%% density plots
+    extent = [tGrid.min(), tGrid.max(), rGrid.min(), rGrid.max()]
+    fig, ax = plt.subplots()
+    
+    cset = ax.pcolormesh(tGrid, rGrid, u_t)
+    ax.set_title("Temperature vs distance and time")
+    fig.colorbar(cset, ax=ax)
+    ax.set_ylabel("distance (m)")
+    ax.set_xlabel("Time (s)")

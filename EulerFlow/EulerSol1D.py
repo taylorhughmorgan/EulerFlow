@@ -402,9 +402,9 @@ if __name__ == '__main__':
     def densPlot(ax, var, desc, log=False):
         ## create a density plot of a given variable
         if log:
-            cset = ax.imshow(np.flipud(np.log(var)), extent=extent, aspect='auto')
+            cset = ax.pcolormesh(tGrid, rGrid, var, norm='log', cmap='jet')
         else:
-            cset = ax.imshow(np.flipud(var), extent=extent, aspect='auto')
+            cset = ax.pcolormesh(tGrid, rGrid, var, norm='linear', cmap='jet')
         ax.set_title(desc)
         fig.colorbar(cset, ax=ax)
     
