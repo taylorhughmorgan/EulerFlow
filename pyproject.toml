@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "EulerFlow"
+dynamic = ["version"]
+dependencies = [
+    'numpy',
+    'matplotlib',
+    'scipy'
+    ]
+
+requires-python = ">= 3.8"
+authors = [
+  {name = "Hugh Morgan", email = "serebrum@gmail.com"},
+]
+maintainers = [
+  {name = "Hugh Morgan", email = "serebrum@gmail.com"}
+]
+description='Solve the Euler Equations for inviscid compressible flow in 1D.'
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["Euler", "Navier-Stokes","PDE","Flow","Compressible","ODE"]
+
+[project.urls]
+homepage = 'https://github.com/taylorhughmorgan/EulerFlow'
