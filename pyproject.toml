@@ -25,3 +25,8 @@ keywords = ["Euler", "Navier-Stokes","PDE","Flow","Compressible","ODE"]
 
 [project.urls]
 homepage = 'https://github.com/taylorhughmorgan/EulerFlow'
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
