@@ -39,3 +39,13 @@ Blast.dispFields()      ## density plots of the field
 Blast.plotDiscTimes()   ## plott at discrete times
 ```
 ## Taylor-Von Neumann-Sedov Analytical Solution
+
+## To-Do
+Other goals I have with this project:
+ - solve the euler equation with other flux integration schemes (Roe, etc)
+ - simple PDEs as unit tests such as the wave and diffusion equation
+ - Basset-Oseen equation (transient, compressible, particle-laden flow)
+ - Coupled Euler equations with combustion
+ - Full Navier-Stokes equations
+ - quasi-1D Euler, with cross-sectional area variation
+ - etc
