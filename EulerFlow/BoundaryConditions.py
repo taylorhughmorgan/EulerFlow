@@ -4,42 +4,47 @@ Created on Fri Sep  6 14:33:35 2024
 
 @author: Hugh Morgan
 """
+validBCs = ['reflective', 'gradient', 'constant', 'extrapolated']
 
+def agnosticBC(ids, bc_id):
+    """ Boundary condition agnostic to upper or lower bound """
+    if bc_id == 'reflective':
+        def applyBCs(u, grid):
+            u[ids[0]]   = -u[ids[1]]
+            
+    elif 'gradient' in bc_id: 
+        val = float( bc_id.split(':')[1] )
+        def applyBCs(u, grid):
+            dx = grid[ids[1]] - grid[ids[0]]
+            u[ids[0]]   = u[ids[1]] + val * dx
+            
+    elif bc_id == 'extrapolated':
+        def applyBCs(u, grid):
+            u[ids[0]]   = 2 * u[ids[1]] - u[ids[2]]
+            
+    elif 'constant' in bc_id:
+        val = float(bc_id.split(':')[1])
+        def applyBCs(u, grid):
+            u[ids[0]] = val
+    else:
+        raise Exception(f"Boundary condition '{bc_id}' has not been implemented. Valid options are {validBCs}.")
+    
+    return applyBCs
+    
 
 def GenerateBCs1D(bc_lower: str, bc_upper: str):
     """ Apply Boundary conditions. """
     ## boundary conditions on the lower bound
-    if bc_lower == 'reflective':
-        def applyLowerBCs(u):
-            u[0]   = -u[1]
-    elif bc_lower == 'transmissive':
-        def applyLowerBCs(u):
-            u[0]   = u[1]
-    elif bc_lower == 'extrapolated':
-        def applyLowerBCs(u):
-            u[0]   = 2 * u[1] - u[2]
-    elif 'constant' in bc_lower:
-        val = float(bc_lower.split(':')[1])
-        def applyLowerBCs(u):
-            u[0] = val
-    else:
-        raise Exception(f"Boundary condition '{bc_lower}' has not been implemented.")
+    id_lower = [0, 1, 2]
+    applyLowerBCs = agnosticBC(id_lower, bc_lower)
     
     ## boundary conditions on the upper bound
-    if bc_upper == 'reflective':
-        def applyUpperBCs(u):
-            u[-1]   = -u[-2]
-    elif bc_upper == 'transmissive':
-        def applyUpperBCs(u):
-            u[-1]   = u[-2]
-    elif bc_upper == 'extrapolated':
-        def applyUpperBCs(u):
-            u[-1]   = 2 * u[-2] - u[-3]
-    elif 'constant' in bc_upper:
-        val = float(bc_upper.split(':')[1])
-        def applyUpperBCs(u):
-            u[-1] = val
-    else:
-        raise Exception(f"Boundary condition '{bc_upper}' has not been implemented.")
-
-    return applyLowerBCs, applyUpperBCs
+    id_upper = [-1, -2, -3]
+    applyUpperBCs = agnosticBC(id_upper, bc_upper)
+    
+    ## combine them into a single boundary condition
+    def applyBCs(u, grid):
+        applyLowerBCs(u, grid)
+        applyUpperBCs(u, grid)
+        
+    return applyBCs

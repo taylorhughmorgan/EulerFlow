@@ -32,7 +32,7 @@ class Diffusion:
         
         ## generate boundary conditions
         self.diffCoef = diffCoef
-        self.bc_lower, self.bc_upper = GenerateBCs1D(bc_lower, bc_upper)
+        self.bc_u = GenerateBCs1D(bc_lower, bc_upper)
         
 
     def __call__(self, t: np.array, u: np.array):
@@ -41,8 +41,7 @@ class Diffusion:
         u_ghost[1:-1] = np.copy(u)
 
         ## apply boundary conditions
-        self.bc_lower(u_ghost)
-        self.bc_upper(u_ghost)
+        self.bc_u(u_ghost, self.ghostGrid)
         
         du_dt = self.diffCoef * (u_ghost[2:] - 2 * u_ghost[1:-1] + u_ghost[:-2]) / self.ds2
         return du_dt
@@ -54,12 +53,12 @@ if __name__ == '__main__':
     rGrid  = np.linspace(0, 10, num=300)
     ## generate initial conditions
     u0 = np.ones_like(rGrid)
-    u0[np.logical_and(rGrid > 3, rGrid < 6)] = 2
+    u0[np.logical_and(rGrid > 3.5, rGrid < 6.5)] = 2
 
     ## solve the initial value problem
     diffusion = Diffusion(rGrid, 1.0,
-                          bc_lower='constant:1',
-                          bc_upper='transmissive'
+                          bc_lower='gradient:0.5',
+                          bc_upper='gradient:-0.5'
                           )
     res = solve_ivp(diffusion, [tGrid.min(), tGrid.max()], u0, 
                     method='RK45', t_eval=tGrid)
