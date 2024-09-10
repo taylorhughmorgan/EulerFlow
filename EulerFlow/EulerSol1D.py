@@ -7,6 +7,7 @@ Description: Solve the 1D Euler equations in cartesian, cylindrical, and polar c
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
+from BoundaryConditions import GenerateBCs1D, validBCs
 
 def d3dx3_fwd(y: np.array):
     ## third-order spatial differencing, forwards
@@ -31,6 +32,7 @@ def JST_2ndOrderEulerFlux(F: np.array):
         hbar_jmhalf = (ftemp[1:-1] + ftemp[:-2]) / 2
         Q_j.append( hbar_jphalf - hbar_jmhalf)
     return Q_j
+
 
 def JST_DissipFlux(W: np.array,
                    p: np.array,
@@ -74,6 +76,7 @@ def JST_DissipFlux(W: np.array,
 
     return D_j
 
+
 class EulerSol:
     def __init__(self,
                  grid: np.array,                # computational grid
@@ -81,8 +84,10 @@ class EulerSol:
                  alpha: list=[0.5, 0.5],        # dissipative flux terms for spatial differencing
                  beta: list=[0.25, 0.5],        # dissipative flux terms for spatial differencing
                  gamma: float=1.4,              # ratio of specific heats
-                 bc_lower: str='reflective',    # boundary condition on the lower bound
-                 bc_upper: str='transmissive'   # boundary condition on the upper bound
+                 bcs: dict={'rho' : ['gradient:0', 'gradient:0'],
+                            'u'   : ['reflective', 'gradient:0'],
+                            'E'   : ['gradient:0', 'gradient:0']
+                            }
                  ):
         """
         Solve Euler's system of equations describing the behavior of inviscid, compressible flow by reducing to a system of ordinary differential equations.
@@ -108,12 +113,9 @@ class EulerSol:
         self.ghostE   = np.zeros_like(self.ghostGrid)
 
         ## defining boundary conditions
-        credible_bcs = ['reflective', 'transmissive', 'extrapolated']
-        if bc_upper not in credible_bcs:
-            raise Exception(f"{bc_upper} not a credible Boundary Condition. Use {credible_bcs}.")
-        if bc_lower not in credible_bcs:
-            raise Exception(f"{bc_lower} not a credible Boundary Condition. Use {credible_bcs}.")
-        self.__lowerBC, self.__upperBC = self.__genBCs(bc_lower, bc_upper)
+        self.__rhoBC = GenerateBCs1D(bcs['rho'][0], bcs['rho'][1])
+        self.__uBC   = GenerateBCs1D(bcs['u'][0], bcs['u'][1])
+        self.__eBC   = GenerateBCs1D(bcs['E'][0], bcs['E'][1])
 
 
     def createICs(self, 
@@ -141,45 +143,6 @@ class EulerSol:
         p = rho * (self.gamma - 1) * (E - 0.5 * U**2)
         return rho, U, E, p
     
-
-    def __genBCs(self, bc_lower: str, bc_upper: str):
-        """ Apply Boundary conditions. """
-        ## boundary conditions on the lower bound
-        if bc_lower == 'reflective':
-            def applyLowerBCs(rho, E, u):
-                u[0]   = -u[1]
-                E[0]   = E[1]
-                rho[0] = rho[1]
-        elif bc_lower == 'transmissive':
-            def applyLowerBCs(rho, E, u):
-                u[0]   = u[1]
-                E[0]   = E[1]
-                rho[0] = rho[1]
-        elif bc_lower == 'extrapolated':
-            def applyLowerBCs(rho, E, u):
-                u[0]   = 2 * u[1] - u[2]
-                E[0]   = 2 * E[1] - E[2]
-                rho[0] = 2 * rho[1] - rho[2]
-        
-        ## boundary conditions on the upper bound
-        if bc_upper == 'reflective':
-            def applyUpperBCs(rho, E, u):
-                u[-1]   = -u[-2]
-                E[-1]   = E[-2]
-                rho[-1] = rho[-2]
-        elif bc_upper == 'transmissive':
-            def applyUpperBCs(rho, E, u):
-                u[-1]   = u[-2]
-                E[-1]   = E[-2]
-                rho[-1] = rho[-2]
-        elif bc_upper == 'extrapolated':
-            def applyUpperBCs(rho, E, u):
-                u[-1]   = 2 * u[-2] - u[-3]
-                E[-1]   = 2 * E[-2] - E[-3]
-                rho[-1] = 2 * rho[-2] - rho[-3]
-
-        return applyLowerBCs, applyUpperBCs
-
     def __call__(self, t, x):
         """
         """
@@ -195,8 +158,11 @@ class EulerSol:
         self.ghostRho[1:-1] = rho
         self.ghostU[1:-1]   = u 
         self.ghostE[1:-1]   = E
-        self.__lowerBC(self.ghostRho, self.ghostE, self.ghostU)
-        self.__upperBC(self.ghostRho, self.ghostE, self.ghostU)
+        self.__rhoBC(self.ghostRho, self.ghostGrid)
+        self.__uBC(self.ghostU, self.ghostGrid)
+        self.__eBC(self.ghostE, self.ghostGrid)
+        #self.__lowerBC(self.ghostRho, self.ghostE, self.ghostU)
+        #self.__upperBC(self.ghostRho, self.ghostE, self.ghostU)
 
         ## apply equations of state
         p = self.ghostRho * (self.gamma - 1) * (self.ghostE - 0.5 * self.ghostU**2)
