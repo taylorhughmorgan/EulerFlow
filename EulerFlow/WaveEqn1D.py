@@ -15,6 +15,7 @@ class WaveEqn:
                  cs: float,                    # sound speed coefficient
                  bc_lower: str='constant:0',   # lower boundary condition
                  bc_upper: str='constant:0',   # upper boundary condition
+                 order: int=0,                 # order of equations, 0=cartesian, 1=cylindrical/polar, 2=spherical
                  ):
         """ 1D wave equation in cartesian coordinates """
         ## setting up the ghost grid
@@ -27,6 +28,11 @@ class WaveEqn:
         self.ghostGrid[-1]   = grid[-1] + self.dr
         self.u_ghost         = np.zeros_like(self.ghostGrid)
         self.dudt_ghost      = np.zeros_like(self.ghostGrid)
+        ## if cylindrical/polar or spherical coordinates are used, ensure that the ghost grid lower bound is greater than zero
+        self.order = order
+        if (order == 1 or order == 2) and self.ghostGrid[0] <= 0:
+            raise Exception(f"For cylindrical/polar or spherical coordinates, the ghost grid must be > 0. Lower bound={self.ghostGrid[0]}.")
+        
         
         ## second order spatial difference
         self.ds  = (self.ghostGrid[2:] - self.ghostGrid[:-2]) / 2
@@ -46,14 +52,21 @@ class WaveEqn:
         ## apply boundary conditions
         self.bc_u(self.u_ghost, self.ghostGrid)
         
-        d2u_dt2 = self.cs * (self.u_ghost[2:] - 2 * self.u_ghost[1:-1] + self.u_ghost[:-2]) / self.ds2
-        return np.concatenate((dudt, d2u_dt2))
+        ## RHS = d^2 (r^alpha * rho) / dr^2 - d (alpha * r^(alpha-1) * rho) / dr
+        rAlphaRho = self.u_ghost * self.ghostGrid ** self.order
+        alphaRalpham1U = self.order * self.u_ghost * self.ghostGrid ** (self.order - 1)
+        term1 = (rAlphaRho[2:] - 2 * rAlphaRho[1:-1] + rAlphaRho[:-2]) / self.ds2
+        term2 = (alphaRalpham1U[2:] - alphaRalpham1U[:-2]) / (2 * self.ds)  # use central differencing
+        rhs = term1 - term2
+        
+        #return rhs
+        return np.concatenate((dudt, rhs))
     
 
 if __name__ == '__main__':
     #%% set up the grid
-    tGrid = np.linspace(0, 3, num=30)
-    rGrid  = np.linspace(0, 10, num=300)
+    tGrid = np.linspace(0, 6, num=300)
+    rGrid  = np.linspace(0.1, 10, num=300)
     ## generate initial conditions
     u0    = np.zeros_like(rGrid)
     dudt0 = np.zeros_like(rGrid)
@@ -61,9 +74,10 @@ if __name__ == '__main__':
     y0 = np.concatenate((u0, dudt0))
 
     ## solve the initial value problem
-    wave = WaveEqn(rGrid, 3.0,
+    wave = WaveEqn(rGrid, 4.0,
                    bc_lower='constant:0',
-                   bc_upper='constant:0'
+                   bc_upper='constant:0',
+                   order=0
                    )
     res = solve_ivp(wave, [tGrid.min(), tGrid.max()], y0, 
                     method='RK45', t_eval=tGrid)
@@ -84,7 +98,7 @@ if __name__ == '__main__':
     fig, ax = plt.subplots()
     
     cset = ax.pcolormesh(tGrid, rGrid, u_t)
-    ax.set_title("Temperature vs distance and time")
+    ax.set_title("Pressure vs distance and time")
     fig.colorbar(cset, ax=ax)
     ax.set_ylabel("distance (m)")
     ax.set_xlabel("Time (s)")
