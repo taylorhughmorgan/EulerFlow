@@ -169,6 +169,7 @@ class Rocket1D:
         Convert the parameters to nondimensional form, for speed and numerical stability.
         """
         self.gamma      = gamma
+        self.nGridPts   = grid__m.size
 
         ## dimensionless parameters: scale using rhoScale, PScale, and ScaleLen__m
         self.ScaleLen__m        = ScaleLen__m
@@ -193,8 +194,7 @@ class Rocket1D:
     def solve(self,
               method: str='RK45'):
         """ Solve the system of partial differential equations using scipy.integrate.solve_ivp"""
-        self.ODEs = EulerSolQuasi1D(self.grid, gamma=self.gamma,
-                               alpha=[0.5, 0.5], beta=[0.25, 0.5])
+        self.ODEs = EulerSolQuasi1D(self.grid, self.SxStar, gamma=self.gamma,)
         y0 = self.ODEs.createICs(self.rho0, self.v0, self.p0)
         t_range = [self.times.min(), self.times.max()]
         r_range = [self.grid.min(), self.grid.max()]
@@ -205,10 +205,28 @@ class Rocket1D:
                         method=method)
         
         rhoStar_t, uStar_t, eStar_t, pStar_t = self.ODEs.conv2Primatives(res.y)
-        self.rho = rhoStar_t * self.rho0__kgpm3
-        self.u   = uStar_t * np.sqrt(self.P0__Pa / self.rho0__kgpm3)
-        self.p   = pStar_t * self.P0__Pa
+        self.rho = rhoStar_t * self.rhoScale__kgpm3
+        self.u   = uStar_t * np.sqrt(self.PScale__Pa / self.rhoScale__kgpm3)
+        self.p   = pStar_t * self.PScale__Pa
         self.E   = self.p / (self.rho * (self.gamma - 1)) + 0.5 * self.u**2
+        return res
+
+    def plotAreaRelation(self):
+        """ Plot the radius, area, and area derivative with respect to axial distance """
+        fig, ax = plt.subplots()
+        color = 'tab:blue'
+        p0 = ax.plot(self.ODEs.grid, self.ODEs.R_x, label='Area', color=color)
+        ax.set_ylim(0, self.ODEs.R_x.max())
+        ax.grid(True)
+        ax.set_xlabel('distance (m)')
+        ax.set_ylabel('radius(m)', color=color)
+        ax.tick_params(axis='y', labelcolor=color)
+
+        color = 'tab:red'
+        ax2 = ax.twinx()
+        p2 = ax2.plot(self.ODEs.ghostGrid, self.ODEs.ghostS_x, label='dArea/dx', color=color)
+        ax2.set_ylabel('dArea/dx (m)', color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
 
 
     def dispFields(self):
@@ -257,7 +275,7 @@ class Rocket1D:
 
 if __name__ == '__main__':
     ## final time
-    tFinal = 1
+    times = np.linspace(0, 0.01, num=100)
     ## setting up the grid
     x = np.linspace(0,10, num=300)
     ## area vs radial distance
@@ -266,35 +284,20 @@ if __name__ == '__main__':
     Area_x[x >= 5] = 1 + 0.5 * (1 - x[x>=5]/5)**2
 
     ## setting initial conditions
-    P0   = 10 * np.ones_like(x)
+    P0   = 101325 * np.ones_like(x)
     u0   = np.zeros_like(x)
     rho0 = np.ones_like(x)
+    P0[x < 2] = 1013250
     ## boundary conditions
     BCs = {'rho' : ['gradient:0', 'gradient:0'],
            'u'   : ['constant:1', 'extrapolated'],
            'E'   : ['gradient:0', 'extrapolated']
            }
     
-    ## 
-    ODEs = EulerSolQuasi1D(x, Area_x,
-                         bcs=BCs)
+    #%% setting up the Rocket problem
+    Engine = Rocket1D(x, Area_x, rho0, P0, u0, times)
 
-    ## plotting area and area gradien vs axial distance
-    fig, ax = plt.subplots()
-    p0 = ax.plot(ODEs.ghostGrid, ODEs.ghostS_x, label='Area', color='b')
-    ax.set_ylim(0, ODEs.ghostS_x.max())
-    ax.grid(True)
-    ax.set_xlabel('distance (m)')
-    ax.set_ylabel('area (m^2)', color='b')
-    ax.tick_params(axis='y', labelcolor='b')
-
-    ax2 = ax.twinx()
-    p2 = ax2.plot(ODEs.ghostGrid, ODEs.ghostS_x, label='dArea/dx', color='r')
-    ax2.set_ylabel('dArea/dx (m)', color='r')
-    ax2.tick_params(axis='y', labelcolor='r')
-
-    ## solving the set of equations
-    y0 = ODEs.createICs(rho0, u0, P0)
-    res = solve_ivp(ODEs, [0, tFinal], y0,
-                    method='RK45')
-    rho_t, u_t, e_t, p_t = ODEs.conv2Primatives(res.y)
+    res = Engine.solve()
+    Engine.plotAreaRelation()
+    Engine.dispFields()
+    Engine.plotDiscTimes()
