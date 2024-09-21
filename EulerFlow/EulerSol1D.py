@@ -7,8 +7,8 @@ Description: Solve the 1D Euler equations in cartesian, cylindrical, and polar c
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
-from BoundaryConditions import GenerateBCs1D, validBCs
-from JamesonShmidtTurkel import JST_DissipFlux, JST_2ndOrderEulerFlux
+from .BoundaryConditions import GenerateBCs1D
+from .JamesonShmidtTurkel import JST_DissipFlux, JST_2ndOrderEulerFlux
 
 
 class EulerSol:
