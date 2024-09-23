@@ -6,6 +6,7 @@ Description: Solve the 1D diffusion equation in cartesian, cylindrical, and sphe
 """
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from scipy.integrate import solve_ivp
 from BoundaryConditions import GenerateBCs1D
 
@@ -85,9 +86,9 @@ class Diffusion:
 if __name__ == '__main__':
     #%% set up the grid
     ordr  = 0
-    tGrid = np.linspace(0, 2, num=50)
-    xGrid = np.linspace(0, 10, num=100)
-    yGrid = np.linspace(0, 10, num=100)
+    tGrid = np.linspace(0, 1, num=50)
+    xGrid = np.linspace(0, 10, num=200)
+    yGrid = np.linspace(0, 10, num=200)
     X, Y  = np.meshgrid(xGrid, yGrid)
     nx = len(xGrid)
     ny = len(yGrid)
@@ -95,7 +96,7 @@ if __name__ == '__main__':
     u0_arr = np.arange(nx*ny)
     u0_2d  = u0_arr.reshape(nx, ny) / u0_arr.max()
 
-    DiffEx = Diffusion((xGrid, yGrid), 1)
+    DiffEx = Diffusion((xGrid, yGrid), 1, order=ordr)
     y0     = DiffEx.createICs(u0_2d)
 
     res = solve_ivp(DiffEx, [tGrid.min(), tGrid.max()], y0=y0,
@@ -110,4 +111,16 @@ if __name__ == '__main__':
     fig = plt.figure()
     plt.pcolormesh(X, Y, u_t[:,:,-1])
     plt.title(f"Diffusion at t={tGrid.max():.2f}s")
-    
+    #%%
+    fig, ax = plt.subplots()
+    cax = ax.pcolormesh(X, Y, u_t[:,:,0])
+    fig.colorbar(cax)
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+
+    def animate(frame):
+        cax.set_array(u_t[:,:,frame].flatten())
+
+    ani = FuncAnimation(fig, animate, frames=len(tGrid))
+    ani.save("DiffusionExample.mp4")
+    plt.show()
