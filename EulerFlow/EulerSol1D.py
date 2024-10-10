@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from .BoundaryConditions import GenerateBCs1D
 from .JamesonShmidtTurkel import JST_DissipFlux, JST_2ndOrderEulerFlux
-
+from math import gamma as gamma_func
 
 class EulerSol:
     def __init__(self,
@@ -158,6 +158,11 @@ class SedovBlast:
         self.rho0__kgpm3    = rho0__kgpm3
         self.order          = order
         self.gamma          = gamma
+
+        ## calculate the internal energy of the explosion
+        n = order + 1
+        self.VExpl__m3 = np.pi ** (n/2) / gamma_func(n/2 + 1) * RExpl__m**n
+        self.EExpl__J  = self.PExpl__Pa * self.VExpl__m3 / (self.gamma - 1)
 
         ## dimensionless parameters: scale using rho0, P0, and diameter
         UScale  = np.sqrt(P0__Pa / rho0__kgpm3)
