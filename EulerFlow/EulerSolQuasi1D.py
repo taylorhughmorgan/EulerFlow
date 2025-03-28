@@ -19,9 +19,9 @@ class EulerSolQuasi1D:
                  beta: list=[0.25, 0.5],        # dissipative flux terms for spatial differencing
                  gamma: float=1.4,              # ratio of specific heats
                  Rspec__JpkgK: float=287.05287, # Ideal gas constant, J/kg-K
-                 bcs: dict={'rho' : ['gradient:0', 'gradient:0'],
-                            'u'   : ['reflective', 'gradient:0'],
-                            'E'   : ['gradient:0', 'gradient:0']
+                 bcs: dict={'u' : ['gradient:0', 'gradient:0'],
+                            'p' : ['reflective', 'gradient:0'],
+                            'T' : ['gradient:0', 'gradient:0']
                             }
                  ):
         """
@@ -49,6 +49,7 @@ class EulerSolQuasi1D:
         self.ghostRho = np.ones_like(self.ghostGrid)
         self.ghostU   = np.zeros_like(self.ghostGrid)
         self.ghostE   = np.zeros_like(self.ghostGrid)
+        self.ghostP   = np.ones_like(self.ghostGrid)
         self.ghostT   = np.zeros_like(self.ghostGrid)
 
         ## cross-sectional area and it's dervivateive as a function of axial distance, ghost grid
@@ -58,9 +59,9 @@ class EulerSolQuasi1D:
         self.ghostdSdx  = np.interp(self.ghostGrid, self.grid[1:-1], self.dSdx_x)
 
         ## defining boundary conditions
-        self.__rhoBC = GenerateBCs1D(bcs['rho'][0], bcs['rho'][1])
-        self.__uBC   = GenerateBCs1D(bcs['u'][0], bcs['u'][1])
-        self.__eBC   = GenerateBCs1D(bcs['E'][0], bcs['E'][1])
+        self.__uBC = GenerateBCs1D(bcs['u'][0], bcs['u'][1])
+        self.__pBC = GenerateBCs1D(bcs['p'][0], bcs['p'][1])
+        self.__TBC = GenerateBCs1D(bcs['T'][0], bcs['T'][1])
 
 
     def createICs(self, 
@@ -106,25 +107,27 @@ perfect gas
         rho_U = x[self.size:2*self.size] / self.S_x   # second block contains rho*U
         rho_E = x[2*self.size:] / self.S_x            # third block contains rho*E
 
-        ## convert to primatives
+        ## convert to primatives - Apply equations of staate
         u = rho_U / rho
         E = rho_E / rho
+        p = rho * (self.gamma - 1) * (E - u**2)
+        #H = E + p / rho
+        T = p / (rho * self.Rspec__JpkgK)
 
         ## ALL FOLLOWING SCALAR VALUES LIE ALONG THE GHOST GRID
-        ## apply boundary conditions
-        self.ghostRho[1:-1] = rho
-        self.ghostU[1:-1]   = u 
-        self.ghostE[1:-1]   = E
-        self.__rhoBC(self.ghostRho, self.ghostGrid)
+        ## apply boundary conditions to u, p and t
+        self.ghostU[1:-1] = u
+        self.ghostP[1:-1] = p
+        self.ghostT[1:-1] = T
         self.__uBC(self.ghostU, self.ghostGrid)
-        self.__eBC(self.ghostE, self.ghostGrid)
+        self.__pBC(self.ghostP, self.ghostGrid)
+        self.__TBC(self.ghostT, self.ghostGrid)
 
-        ## apply equations of state
-        p = self.ghostRho * (self.gamma - 1) * (self.ghostE - 0.5 * self.ghostU**2)
-        H = self.ghostE + p / self.ghostRho
-        T = p / (self.ghostRho * self.Rspec__JpkgK)
-        cs = np.sqrt( self.gamma * p / self.ghostRho)
-        self.ghostT  = T
+        ## apply equations of state to calculate rho, U, and E on the ghost grid
+        self.ghostRho = self.ghostP / (self.ghostT * self.Rspec__JpkgK)
+        self.ghostE   = self.ghostP / (self.ghostRho * (self.gamma - 1)) + 0.5 * self.ghostU**2
+        H = self.ghostE + self.ghostP / self.ghostRho
+        cs = np.sqrt( self.gamma * self.ghostP / self.ghostRho)
 
         ## develop W - state vector variable
         W = [self.ghostRho * self.ghostS_x,
@@ -134,18 +137,18 @@ perfect gas
         
         ## develop F - flux vector variable
         F = [self.ghostRho * self.ghostU * self.ghostS_x,
-             (self.ghostRho * self.ghostU**2 + p) * self.ghostS_x,
+             (self.ghostRho * self.ghostU**2 + self.ghostP) * self.ghostS_x,
              self.ghostRho * self.ghostU * H * self.ghostS_x
              ]
 
         ## develop S - source term variable
-        S = [np.zeros_like(p), 
-             p * self.ghostdSdx,
-             np.zeros_like(p) ]
+        S = [np.zeros_like(self.ghostP), 
+             self.ghostP * self.ghostdSdx,
+             np.zeros_like(self.ghostP) ]
         
         ## calculate second-order Euler flux and dissipation flux
         Qj = JST_2ndOrderEulerFlux(F)
-        Dj = JST_DissipFlux(W, p, self.ghostU, cs, self.alpha, self.beta)
+        Dj = JST_DissipFlux(W, self.ghostP, self.ghostU, cs, self.alpha, self.beta)
         
         Rj = []
         for stemp, qtemp, dtemp in zip(S, Qj, Dj):
@@ -163,7 +166,9 @@ class Rocket1D:
                  v0__mps: np.array,         # ambient air density, m/s
                  times__s: float,           # solution times, seconds
                  ScaleLen__m: float=1,      # length scale, meters
+                 ScaleTemp__K: float=300,   # scale temperature, Kelvin
                  gamma: float=1.4,          # ratio of specific heats, N/A
+                 Rspec__JpkgK: float=287.05287, # Ideal gas constant, J/kg-K
                  ):
         """
         Convert the parameters to nondimensional form, for speed and numerical stability.
@@ -180,6 +185,8 @@ class Rocket1D:
         self.grid   = grid__m / ScaleLen__m
         self.times  = times__s / ScaleLen__m * self.UScale
         self.SxStar = Sx__m2 / ScaleLen__m**2
+        ## NEED TO SCALE IDEAL GAS CONSTANT
+        self.RspecStar = Rspec__JpkgK / self.UScale**2 * ScaleTemp__K
 
         ## setting the initial conditions
         self.rho0 = rho0__kgpm3 / self.rhoScale__kgpm3
@@ -192,15 +199,17 @@ class Rocket1D:
         self.T__s, self.R__m = np.meshgrid(self.t__s, self.r__m)
     
     def solve(self,
+              BoundaryConditions: dict,
               method: str='RK45'):
         """ Solve the system of partial differential equations using scipy.integrate.solve_ivp"""
-        self.ODEs = EulerSolQuasi1D(self.grid, self.SxStar, gamma=self.gamma,)
-        y0 = self.ODEs.createICs(self.rho0, self.v0, self.p0)
+        self.ODEs = EulerSolQuasi1D(self.grid, self.SxStar, gamma=self.gamma,
+                                    bcs=BoundaryConditions, Rspec__JpkgK=self.RspecStar)
+        self.y0 = self.ODEs.createICs(self.rho0, self.v0, self.p0)
         t_range = [self.times.min(), self.times.max()]
         r_range = [self.grid.min(), self.grid.max()]
         
         print(f"Solving the Euler Equation as a system of ODES. \nt_range={t_range}(dimensionless) \nnGridPts={self.nGridPts}\nr_range={r_range}(dimensionless)")
-        res = solve_ivp(self.ODEs, t_range, y0,
+        res = solve_ivp(self.ODEs, t_range, self.y0,
                         t_eval=self.times,
                         method=method)
         
@@ -275,7 +284,7 @@ class Rocket1D:
 
 if __name__ == '__main__':
     ## final time
-    times = np.linspace(0, 0.01, num=100)
+    times = np.linspace(0, 0.002, num=100)
     ## setting up the grid
     x = np.linspace(0,10, num=300)
     ## area vs radial distance
@@ -285,19 +294,19 @@ if __name__ == '__main__':
 
     ## setting initial conditions
     P0   = 101325 * np.ones_like(x)
-    u0   = np.zeros_like(x)
-    rho0 = np.ones_like(x)
-    P0[x < 2] = 1013250
+    u0   = 83 * np.ones_like(x)
+    rho0 = 1.225 * np.ones_like(x)
+    P0[x < 2] = 4 * 101325
     ## boundary conditions
-    BCs = {'rho' : ['gradient:0', 'gradient:0'],
-           'u'   : ['constant:1', 'extrapolated'],
-           'E'   : ['gradient:0', 'extrapolated']
+    BCs = {'u' : ['gradient:0', 'extrapolated'], #['constant:0.28859435', 'extrapolated'],
+           'p' : ['gradient:0', 'gradient:0'], #['constant:10', 'constant:4'],
+           'T' : ['gradient:0', 'extrapolated'] #['constant:0.96505', 'extrapolated']
            }
     
     #%% setting up the Rocket problem
     Engine = Rocket1D(x, Area_x, rho0, P0, u0, times)
 
-    res = Engine.solve()
+    res = Engine.solve(BCs)
     Engine.plotAreaRelation()
     Engine.dispFields()
     Engine.plotDiscTimes()

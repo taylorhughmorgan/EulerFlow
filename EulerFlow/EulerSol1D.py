@@ -6,10 +6,44 @@ Description: Solve the 1D Euler equations in cartesian, cylindrical, and polar c
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from scipy.integrate import solve_ivp
 from .BoundaryConditions import GenerateBCs1D
 from .JamesonShmidtTurkel import JST_DissipFlux, JST_2ndOrderEulerFlux
 from math import gamma as gamma_func
+
+class shockReachEnd:
+    """ Abort the simulation if the shock reaches the end of the domain """
+    def __init__(self, 
+                 grid : np.array, 
+                 order : int, 
+                 gamma : float,
+                 terminal : bool):
+        self.size = grid.size
+        self.grid = grid
+        self.order = order
+        self.gamma = gamma
+        self.terminal = terminal
+        self.direction = -1
+
+    def __call__(self, t, x):
+        """
+        Determine if the domain end is reached by looking at rho, U, and E. 
+        If the pressure is > 1/10th P_max then abort the simulation.
+        """
+        rho   = x[0:self.size] / self.grid**self.order             # first block contains rho
+        rho_U = x[self.size:2*self.size] / self.grid**self.order   # second block contains rho*U
+        rho_E = x[2*self.size:] / self.grid**self.order            # third block contains rho*E
+
+        ## convert to primatives
+        u = rho_U / rho
+        E = rho_E / rho
+        p = rho * (self.gamma - 1) * (E - 0.5 * u**2)
+        if p[-1] / p.max() > 0.5:
+            return -1.0
+        else:
+            return 1.0
+    
 
 class EulerSol:
     def __init__(self,
@@ -177,7 +211,7 @@ class SedovBlast:
 
         rMinStar = min(rExpStar / 10, lenStar / 100)
         self.grid = np.linspace(rMinStar, lenStar, num=self.nGridPts)
-        self.times = np.linspace(0, tFinStar, num=minNGridPts)
+        self.tStar = np.linspace(0, tFinStar, num=minNGridPts)
 
         self.dr = self.grid[1] - self.grid[0]
 
@@ -189,23 +223,39 @@ class SedovBlast:
 
         ## time and grid in dimensional/metric scale
         self.r__m = self.grid * ScaleLen__m
-        self.t__s = self.times * ScaleLen__m / UScale
-        self.T__s, self.R__m = np.meshgrid(self.t__s, self.r__m)
+        self.UScale = UScale
     
     def solve(self,
-              method: str='RK45'):
+              method: str='RK45',
+              terminate: bool=False,    # terminate prematurely if the shock front reaches the end of the domain
+              ):
         """ Solve the system of partial differential equations using scipy.integrate.solve_ivp"""
         ODEs = EulerSol(self.grid, order=self.order, gamma=self.gamma,
                         alpha=[0.5, 0.5], beta=[0.25, 0.5])
         y0 = ODEs.createICs(self.rho0, self.v0, self.p0)
-        t_range = [self.times.min(), self.times.max()]
+        t_range = [self.tStar.min(), self.tStar.max()]
         r_range = [self.grid.min(), self.grid.max()]
         
+        ## set stopping criteria
+        stop_criteria = shockReachEnd(self.grid, self.order, self.gamma, terminate)
         print(f"Solving the Euler Equation as a system of ODES. \nt_range={t_range}(dimensionless) \nnGridPts={self.nGridPts}\nr_range={r_range}(dimensionless)")
+        ## timing the execution
+        start_time = time.perf_counter()
         res = solve_ivp(ODEs, t_range, y0,
-                        t_eval=self.times,
-                        method=method)
+                        t_eval=self.tStar,
+                        method=method,
+                        events=stop_criteria)
+
+        ## reporting the run time
+        execution_time = time.perf_counter() - start_time
+        print(f"Run completed! Execution time = {1000*execution_time:.3f}ms")
         
+        ## creating a time array based on result times (possible conflict with self.times as it can about prematurely)
+        self.res = res
+        self.t__s = self.ScaleLen__m / self.UScale * res.t
+        self.T__s, self.R__m = np.meshgrid(self.t__s, self.r__m)
+
+        ## converting results.y into primatives then converting to SI values
         rhoStar_t, uStar_t, eStar_t, pStar_t = ODEs.conv2Primatives(res.y)
         self.rho = rhoStar_t * self.rho0__kgpm3
         self.u   = uStar_t * np.sqrt(self.P0__Pa / self.rho0__kgpm3)
@@ -238,7 +288,7 @@ class SedovBlast:
         fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True,)
         def linPlot(ax, var, desc, log=False):
             ## plot the solution at discrete times
-            for it, tTemp in enumerate(self.times):
+            for it, tTemp in enumerate(self.t__s):
                 if (it + n_plots) % n_plots == 0:
                     t__ms = 1000 * tTemp
                     if log:
@@ -256,23 +306,25 @@ class SedovBlast:
         axes[1][1].set_xlabel('r (m)')
         axes[1][0].legend()
 
+
 if __name__ == '__main__':
-    LenScale__m = 1    # length scale of the problem
+    #%%
+    LenScale__m = 1     # length scale of the problem
     DomainLen__m = 10   # size of the domain
     PAmb__Pa = 101325   # ambient air pressure
-    PExpl__Pa = 20*PAmb__Pa # Explosive pressure
-    RExpl__m = 3        # radius of explosion
+    PExpl__Pa = 40*PAmb__Pa # Explosive pressure
+    RExpl__m = 3      # radius of explosion
     tFin__s  = 0.010    # final simulation time
     rhoAmb__kgpm3=1.225 # ambient air density
     orders = 2          # order of solution
 
     Blast = SedovBlast(LenScale__m, DomainLen__m, RExpl__m, PExpl__Pa, tFin__s,
                     P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders)
-    Blast.solve()
-    #Blast.dispFields()
-    #Blast.plotDiscTimes()
+    Blast.solve(terminate=True)
+    Blast.dispFields()
+    Blast.plotDiscTimes()
     
-    ## solving it outside SedovBlast - All dimensionless
+    #%% solving it outside SedovBlast - All dimensionless
     ## define grid
     rMin__m = 0.1
     tMax__s = 3
