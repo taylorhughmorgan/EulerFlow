@@ -123,6 +123,26 @@ class TaylorSol:
         axes[1][0].set_ylabel('distance (m)')
 
 
+    def plotDiscTimes(self, outevery=10):
+        """ Plot each variable at discrete times """
+        fig, axes = plt.subplots(nrows=2, ncols=2)
+        tGrid__ms = self.tGrid * 1000
+        for it, tTemp in enumerate(tGrid__ms):
+            if it % outevery == 0:
+                axes[0][0].plot(self.rGrid, self.rho[:,it], label=f"t={tTemp:.2f}ms")
+                axes[1][0].semilogy(self.rGrid, self.v[:,it], label=f"t={tTemp:.2f}ms")
+                axes[0][1].semilogy(self.rGrid, self.p[:,it], label=f"t={tTemp:.2f}ms")
+                axes[1][1].semilogy(self.rGrid, self.E[:,it], label=f"t={tTemp:.2f}ms")
+        
+        axes[1][0].set_xlabel('distance (m)')
+        axes[1][1].set_xlabel('distance (m)')
+        axes[0][0].set_ylabel(r'density ($kg/m^3$)')
+        axes[1][0].set_ylabel(r'velocity ($m/s$)')
+        axes[0][1].set_ylabel(r'Pressure ($Pa$)')
+        axes[1][1].set_ylabel(r'Total Energy ($J$)')
+        for ax in axes.flatten():
+            ax.grid(True)
+
     def plotSelfSimilar(self):
         """ Plot results of self-similar solution to the Taylor-Von Neumann-Sedov blast problem"""
         fig, axes = plt.subplots(nrows=4)
@@ -147,3 +167,4 @@ if __name__ == '__main__':
     TS = TaylorSol(Eblast__J, rDomain__m)
     TS.plotSelfSimilar()
     TS.dispFields()
+    TS.plotDiscTimes()

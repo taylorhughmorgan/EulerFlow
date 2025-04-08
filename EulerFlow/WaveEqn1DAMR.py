@@ -73,6 +73,7 @@ class WaveEqn:
                  bc_lower: str='constant:0',   # lower boundary condition
                  bc_upper: str='constant:0',   # upper boundary condition
                  order: int=0,                 # order of equations, 0=cartesian, 1=cylindrical/polar, 2=spherical
+                 use_AMR: bool=False,          # use adaptive mesh refinement
                  ):
         """ 1D wave equation in cartesian coordinates """
         ## setting up the ghost grid
@@ -81,7 +82,8 @@ class WaveEqn:
         self.grid_adaptive  = self.grid
 
         ## setting up the ghost grid
-        self.dr             = self.grid[1] - self.grid[0]
+        self.use_AMR         = use_AMR
+        self.dr              = self.grid[1] - self.grid[0]
         self.ghostGrid       = np.zeros(self.npts + 2)
         self.ghostGrid[1:-1] = self.grid
         self.ghostGrid[0]    = grid[0] - self.dr
@@ -94,22 +96,18 @@ class WaveEqn:
         if (order == 1 or order == 2) and self.ghostGrid[0] <= 0:
             raise Exception(f"For cylindrical/polar or spherical coordinates, the ghost grid must be > 0. Lower bound={self.ghostGrid[0]}.")
         
-        ## second order spatial difference
-        self.ds  = (self.ghostGrid[2:] - self.ghostGrid[:-2]) / 2
-        self.ds2 = self.ds**2
-        
         ## generate boundary conditions
         self.cs   = cs
         self.bc_u = GenerateBCs1D(bc_lower, bc_upper)
         
 
-    def __call__(self, t: np.array, y: np.array, AMR=True):
+    def __call__(self, t: np.array, y: np.array):
         """ Right hand side of the diffusion equation """
         u    = np.copy(y[:self.npts])
         dudt = np.copy(y[self.npts:])
 
         ## using adaptive mesh refinement to map to new grid
-        if AMR:
+        if self.use_AMR:
             amr = AdaptiveGrid(self.grid_adaptive, u, epsilon=2.0)
             self.grid_adaptive = amr.grid_adaptive
             u_adaptive = amr.interp_field(u)
@@ -121,6 +119,7 @@ class WaveEqn:
         # mapping to the ghost grid
         self.ghostGrid[1:-1] = self.grid_adaptive
         self.u_ghost[1:-1] = u_adaptive
+        ## second order spatial difference
         self.ds  = (self.ghostGrid[2:] - self.ghostGrid[:-2]) / 2
         self.ds2 = self.ds**2
 
@@ -171,8 +170,9 @@ if __name__ == '__main__':
     ax.legend()
 
     ## comparing the grids using static mesh vs AMR
-    amr = AdaptiveGrid(rGrid, u_t[:,outevery], epsilon=2.0)
-    amr.plot(u_t[:,outevery])
+    test_it = 100
+    amr = AdaptiveGrid(rGrid, u_t[:,test_it], epsilon=2.0)
+    amr.plot(u_t[:,test_it])
 
     #%% density plots
     extent = [tGrid.min(), tGrid.max(), rGrid.min(), rGrid.max()]
