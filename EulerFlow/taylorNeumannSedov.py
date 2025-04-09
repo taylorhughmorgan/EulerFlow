@@ -130,7 +130,7 @@ class TaylorSol:
         for it, tTemp in enumerate(tGrid__ms):
             if it % outevery == 0:
                 axes[0][0].plot(self.rGrid, self.rho[:,it], label=f"t={tTemp:.2f}ms")
-                axes[1][0].semilogy(self.rGrid, self.v[:,it], label=f"t={tTemp:.2f}ms")
+                axes[1][0].plot(self.rGrid, self.v[:,it], label=f"t={tTemp:.2f}ms")
                 axes[0][1].semilogy(self.rGrid, self.p[:,it], label=f"t={tTemp:.2f}ms")
                 axes[1][1].semilogy(self.rGrid, self.E[:,it], label=f"t={tTemp:.2f}ms")
         

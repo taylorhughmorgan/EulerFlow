@@ -1,2 +1,3 @@
 from .taylorNeumannSedov import TaylorSol
-from .EulerSol1D import EulerSol, SedovBlast
+from .EulerSol1D import EulerSol
+from .Sedov1D import SedovBlast
