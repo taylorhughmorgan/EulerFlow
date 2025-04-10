@@ -9,6 +9,25 @@ import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 from tqdm import tqdm
 
+def self_similar_sol(X, xi, gamma, nu):
+    """ system of nonlinear equations that describe the self-similar solution to the Euler equations"""
+    Z, V, G = X
+    ## common terms that appears in both Xi and G right-hand-sides (RHS)
+    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
+    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
+    ## describe the RHS to Z, xi, and G equations
+    rhsZ  = (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
+    rhsXi = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
+    rhsG  = (gamma + 1)/(gamma - 1) * common_term2**nu[2] * common_term1**nu[3] * ((gamma + 1) / (gamma - 1) * (1 - V))**nu[4]
+    return [Z - rhsZ, xi**5 - rhsXi, G - rhsG]
+        
+def self_similar_Vxi(V, xi, gamma, nu):
+    """ self-similar solution to calculate V as a function of xi """
+    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
+    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
+    rhsV = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
+    return xi**5 - rhsV
+
 class TaylorSol:
     def __init__(self, 
                  EBlast: float,             # blast energy released, joules
@@ -20,24 +39,16 @@ class TaylorSol:
                  gamma: float=1.4,
                  ):
         """ Sedov solution """
+        self.gamma = gamma
+        self.rho0__kgpm3 = rho0__kgpm3
+        self.press0__Pa  = press0__Pa
         ## gamma-dependent coefficients to the sedov problem
-        nu1 = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
-        nu2 = 5 * (gamma - 1) / (2*gamma + 1)
-        nu3 = 3.0 / (2*gamma + 1)
-        nu4 = -nu1 / (2 - gamma)
-        nu5 = -2.0 / (2 - gamma)
-
-        def func(x, xi=0.5):
-            """ system of nonlinear equations that describe the self-similar solution to the Euler equations"""
-            Z, V, G = x
-            ## common terms that appears in both Xi and G right-hand-sides (RHS)
-            common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
-            common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
-            ## describe the RHS to Z, xi, and G equations
-            rhsZ  = (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
-            rhsXi = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu1 * common_term2**nu2
-            rhsG  = (gamma + 1)/(gamma - 1) * common_term2**nu3 * common_term1**nu4 * ((gamma + 1) / (gamma - 1) * (1 - V))**nu5
-            return [Z - rhsZ, xi**5 - rhsXi, G - rhsG]
+        self.nus = np.zeros(5)
+        self.nus[0] = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
+        self.nus[1] = 5 * (gamma - 1) / (2*gamma + 1)
+        self.nus[2] = 3.0 / (2*gamma + 1)
+        self.nus[3] = -self.nus[0] / (2 - gamma)
+        self.nus[4] = -2.0 / (2 - gamma)
         
         ## looping through xi and solving the system of equation
         self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
@@ -48,19 +59,20 @@ class TaylorSol:
         print("Solving self-similar solution...")
         for i, xi in tqdm(enumerate(self.xi_arr), total=npts):
             ## enforcing bounds on V to keep the solution real/stable
-            res = least_squares(func, initial_guess, args=(xi,),
+            res = least_squares(self_similar_sol, initial_guess, 
+                                args=(xi, gamma, self.nus),
                                 bounds=((-np.inf, 1./gamma, -np.inf), (np.inf, 5/(3*gamma - 1), np.inf))
                                 )
             self.sols[i,:] = res.x
-            self.residuals[i,:] = func(res.x, xi=xi)
+            self.residuals[i,:] = self_similar_sol(res.x, xi, gamma, self.nus)
             ## use solution as next iteration's guess
             initial_guess = res.x
         
         self.Z, self.V, self.G = self.sols.T
         ## interpolating Z, V, and G vs xi
-        Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
-        V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
-        G_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.G[::-1])
+        self.Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
+        self.V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
+        self.G_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.G[::-1])
 
         ## calculating beta value, should be around 1.033 for gamma=1.4
         integrand = self.G * (self.V**2 / 2 + self.Z / (gamma * (gamma - 1))) * self.xi_arr**4
@@ -86,7 +98,7 @@ class TaylorSol:
         self.v   = np.zeros_like(self.T)
         self.p   = np.ones_like(self.T) * press0__Pa
 
-        ## looping through each time and converting to primatives
+        ## looping through each time and converting o primatives
         for it, t in enumerate(self.tGrid):
             ## find the shock location at the given time
             rShock = R_t(t)
@@ -94,10 +106,10 @@ class TaylorSol:
             rValsInShock = self.rGrid[isWithinShock]
             ## calculating density, pressure, and velocity in shock region by converting r to xi
             xi = rValsInShock / rShock
-            rho = rho0__kgpm3 * G_xi(xi)
+            rho = rho0__kgpm3 * self.G_xi(xi)
             self.rho[isWithinShock,it] = rho
-            self.v[isWithinShock,it]   = (2 * rValsInShock / (5*t)) * V_xi(xi)
-            self.p[isWithinShock,it]  += (rho / gamma) * Z_xi(xi) * (2 * rValsInShock / (5*t))**2 
+            self.v[isWithinShock,it]   = (2 * rValsInShock / (5*t)) * self.V_xi(xi)
+            self.p[isWithinShock,it]  += (rho / gamma) * self.Z_xi(xi) * (2 * rValsInShock / (5*t))**2 
         
         self.E = self.p / (self.rho * (gamma - 1)) + 0.5 * self.v**2
         print("Primative variables calculated")
@@ -154,17 +166,40 @@ class TaylorSol:
             ax.set_ylabel(desc)
             ax.grid(True)
         
-        eachPlot(axes[0], self.Z, r"$Z(\xi)$")
+        eachPlot(axes[0], self.Z, r"$Z(\xi)$", logPlot=True)
         eachPlot(axes[1], self.V, r"$V(\xi)$")
         eachPlot(axes[2], self.G, r"$G(\xi)$")
         eachPlot(axes[3], np.linalg.norm(self.residuals, axis=1), r"$residuals(\xi)$", logPlot=True)
 
+    def plotScaledSol(self):
+        """ Plot the scaled, self-similar solution p/p1, v/v1, rho/rho1 """
+        ## scaling parameters: rho1, p1, v1
+        rho1 = self.rho0__kgpm3 * (self.gamma + 1) / (self.gamma - 1)
+        rho_over_rho1 = self.G * (self.gamma - 1) / (self.gamma + 1)
+        v_over_v1 = self.xi_arr * self.V * (self.gamma + 1) / 2
+        p_over_p1 = self.xi_arr**2 * self.G * self.Z * (self.gamma + 1) / (2 * self.gamma)
+        T_over_T1 = self.xi_arr**2 * self.Z * (self.gamma + 1)**2 / (2 * self.gamma * (self.gamma - 1))
+
+        fig, ax = plt.subplots()
+        # plotting rho/rho_1, v/v_1, and p/p_1 on the same axis because they range from zero to 1
+        ax.plot(self.xi_arr, rho_over_rho1, label=r'$\rho/\rho_1$')
+        ax.plot(self.xi_arr, v_over_v1, label=r'$v/v_1$')
+        ax.plot(self.xi_arr, p_over_p1, label=r'$p/p_1$')
+        ax.set_xlabel(r"$\xi$")
+        ax.grid(True)
+        ax.legend(loc='center left')
+
+        ## plotting temperature on another axis
+        ax2 = ax.twinx()
+        ax2.plot(self.xi_arr, T_over_T1, 'r', label=r'$T/T_1$')
+        ax2.legend(loc='upper center')
 
 if __name__ == '__main__':
     Eblast__J  = 1e8    ## blast energy
     rDomain__m = 20     ## domain of the problem
 
-    TS = TaylorSol(Eblast__J, rDomain__m)
+    TS = TaylorSol(Eblast__J, rDomain__m, npts=250)
     TS.plotSelfSimilar()
     TS.dispFields()
     TS.plotDiscTimes()
+    TS.plotScaledSol()
