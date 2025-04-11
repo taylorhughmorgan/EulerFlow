@@ -159,32 +159,49 @@ class SedovBlast:
 if __name__ == '__main__':
     #%%
     LenScale__m = 1     # length scale of the problem
-    DomainLen__m = 10   # size of the domain
+    DomainLen__m = 15   # size of the domain
     PAmb__Pa = 101325   # ambient air pressure
-    PExpl__Pa = 20*PAmb__Pa # Explosive pressure
-    RExpl__m = 0.5      # radius of explosion
-    tFin__s  = 0.016    # final simulation time
+    PExpl__Pa = 80*PAmb__Pa # Explosive pressure
+    RExpl__m = 1.0      # radius of explosion
+    tFin__s  = 0.031    # final simulation time
     rhoAmb__kgpm3=1.225 # ambient air density
     orders = 2          # order of solution
 
     Blast = SedovBlast(LenScale__m, DomainLen__m, RExpl__m, PExpl__Pa, tFin__s,
                     P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders,
-                    relaxFactor=0.15)
+                    relaxFactor=0.15, minNGridPts=1000)
     Blast.solve(terminate=False)
     Blast.dispFields()
     Blast.plotDiscTimes()
 
     #%% compare to analytical solution
     from EulerFlow.taylorNeumannSedov import TaylorSol
-    TS = TaylorSol(10*Blast.EExpl__J, DomainLen__m, 
-                   rho0__kgpm3=rhoAmb__kgpm3, press0__Pa=PAmb__Pa)
+    # calculating blast energy
+    EBlast = (DomainLen__m / 1.033)**5 * (rhoAmb__kgpm3 / tFin__s**2)
+    TS = TaylorSol(Blast.EExpl__J, DomainLen__m, 
+                   rho0__kgpm3=rhoAmb__kgpm3, press0__Pa=PAmb__Pa, npts=1000)
     #%% plotting
-    test_it = 400
+    test_it = 900
     fig = plt.figure()
-    plt.plot(Blast.r__m, Blast.p[:,test_it], label='numerical')
-    plt.plot(TS.rGrid, TS.p[:,test_it*2], label='analytical')
+    plt.plot(Blast.r__m, Blast.u[:,test_it], label='numerical')
+    plt.plot(TS.rGrid, TS.v[:,test_it], label='analytical')
     plt.xlabel('radial grid (m)')
-    plt.ylabel('pressure (psi)')
+    plt.ylabel('velocity (m/s)')
     plt.legend()
     plt.grid(True)
+    
+    #%% plot max pressure across times
+    fig, ax = plt.subplots(nrows=2)
+    ax[0].semilogy(Blast.r__m, Blast.p.max(axis=1), label='numerical')
+    ax[0].semilogy(TS.rGrid, TS.p.max(axis=1), label='analytic')
+    ax[0].set_ylabel('pressure (psi)')
+    ax[0].legend()
+    ax[0].grid(True)
+    ## plotting max velocity
+    ax[1].plot(Blast.r__m, Blast.u.max(axis=1), label='numerical')
+    ax[1].plot(TS.rGrid, TS.v.max(axis=1), label='analytic')
+    ax[1].set_ylabel('velocity (m/s)')
+    ax[1].set_xlabel('radial grid (m)')
+    ax[1].grid(True)
+
 # %%

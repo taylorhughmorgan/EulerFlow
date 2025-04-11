@@ -52,6 +52,7 @@ class TaylorSol:
         self.gamma = gamma
         self.rho0__kgpm3 = rho0__kgpm3
         self.press0__Pa  = press0__Pa
+        self.EBlast__J   = EBlast
         ## gamma-dependent coefficients to the sedov problem
         self.nus = np.zeros(5)
         self.nus[0] = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
@@ -77,9 +78,7 @@ class TaylorSol:
             VTemp = res.x
             GTemp = GVfunc(VTemp, gamma, self.nus)
             ZTemp = ZVfunc(VTemp, gamma)
-            if xi < 0.2:
-                ZTemp = ZVfunc(VTemp + xi * 1e-10, gamma)
-            tempSol = np.array([ZTemp, VTemp, GTemp]) #res.x
+            tempSol = np.array([ZTemp, VTemp, GTemp])
             self.sols[i,:] = tempSol.T
             self.residuals[i,:] = np.array(self_similar_sol(tempSol, xi, gamma, self.nus)).T
             ## use solution as next iteration's guess
@@ -99,43 +98,43 @@ class TaylorSol:
         integrand = self.G * (self.V**2 / 2 + self.Z / (gamma * (gamma - 1))) * self.xi_arr**4
         rhs = -np.trapz(integrand, x=self.xi_arr)
         self.beta = (25 / (16 * np.pi * rhs))**(1./5.)
-        print(f"For gamma={gamma:.1f}, beta={self.beta}, total error={self.toterror:.2f}")
+        print(f"For gamma={gamma:.1f}, beta={self.beta:.4f}, total error={self.toterror:.2f}")
 
-        ## converting to primative variables
-        def R_t(t: float):
-            ## function determining shock wave position as a function of time
-            return self.beta * (EBlast * t**2 / rho0__kgpm3)**(1./5.)
-        
         ## calculating the time it takes for the shock to reach the end of the domain
         self.tFinal = np.sqrt( rho0__kgpm3 / EBlast * (rDomain / self.beta)**5 )
         print(f"For domain size ={rDomain:.2f}m, time-of-shock arrival = {1000*self.tFinal:.2f}ms")
 
         ## setting up spatial and temporal grid
-        self.tGrid = np.linspace(0, self.tFinal, num=2*npts)
-        self.rGrid = np.linspace(0, rDomain, num=2*npts)
+        self.tGrid = np.linspace(0, self.tFinal, num=npts)
+        self.rGrid = np.linspace(0, rDomain, num=npts)
         self.T, self.R = np.meshgrid(self.tGrid, self.rGrid)
         ## initializing primatives
         self.rho = np.ones_like(self.T) * rho0__kgpm3
         self.v   = np.zeros_like(self.T)
         self.p   = np.ones_like(self.T) * press0__Pa
 
-        ## looping through each time and converting o primatives
-        for it, t in enumerate(self.tGrid):
-            ## find the shock location at the given time
-            rShock = R_t(t)
-            isWithinShock = self.rGrid < rShock
-            rValsInShock = self.rGrid[isWithinShock]
-            ## calculating density, pressure, and velocity in shock region by converting r to xi
-            xi = rValsInShock / rShock
-            rho = rho0__kgpm3 * self.G_xi(xi)
-            self.rho[isWithinShock,it] = rho
-            self.v[isWithinShock,it]   = (2 * rValsInShock / (5*t)) * self.V_xi(xi)
-            self.p[isWithinShock,it]  += (rho / gamma) * self.Z_xi(xi) * (2 * rValsInShock / (5*t))**2 
-        
+        ## determining what variables are within the shock
+        ShockLoc = self.R_t(self.T) + 1e-10 # offsetting shock by incredibly small number to avoid overruns
+        self.isInShock = self.R < ShockLoc
+        xi = self.R * self.isInShock / ShockLoc
+        ## converting xi to primatives
+        rho = rho0__kgpm3 * self.G_xi(xi) * self.isInShock
+        self.rho = rho
+        self.v   = (2 * self.R / (5 * self.T)) * self.V_xi(xi) * self.isInShock
+        self.p  += (rho / gamma) * self.Z_xi(xi) * (2 * self.R / (5 * self.T))**2
+
+        ## rho, v, and p will have nan values at R and T=0, set them to default values
+        self.rho[np.isnan(self.rho)] = rho0__kgpm3
+        self.v[np.isnan(self.v)] = 0.0
+        self.p[np.isnan(self.p)] = press0__Pa
         self.E = self.p / (self.rho * (gamma - 1)) + 0.5 * self.v**2
         print("Primative variables calculated")
 
 
+    def R_t(self, t: float):
+        ## function determining shock wave position as a function of time
+        return self.beta * (self.EBlast__J * t**2 / self.rho0__kgpm3)**(1./5.)
+    
     def dispFields(self):
         """ Display the field variables as functions of space and time """
         fig, axes = plt.subplots(nrows=2, ncols=2)
@@ -176,6 +175,7 @@ class TaylorSol:
         for ax in axes.flatten():
             ax.grid(True)
 
+
     def plotSelfSimilar(self):
         """ Plot results of self-similar solution to the Taylor-Von Neumann-Sedov blast problem"""
         fig, axes = plt.subplots(nrows=4)
@@ -192,6 +192,7 @@ class TaylorSol:
         eachPlot(axes[2], self.G, r"$G(\xi)$")
         eachPlot(axes[3], np.linalg.norm(self.residuals, axis=1), r"$residuals(\xi)$", logPlot=True)
         axes[3].set_xlabel(r'$\xi$')
+
 
     def plotScaledSol(self):
         """ Plot the scaled, self-similar solution p/p1, v/v1, rho/rho1 """
@@ -217,12 +218,13 @@ class TaylorSol:
         ax2.legend(loc='upper center')
         ax2.set_ylim([0, 1000])
 
+
 if __name__ == '__main__':
     Eblast__J  = 1e10   ## blast energy
     rDomain__m = 20     ## domain of the problem
 
     TS = TaylorSol(Eblast__J, rDomain__m)
     TS.plotSelfSimilar()
-    #TS.dispFields()
-    #TS.plotDiscTimes()
+    TS.dispFields()
+    TS.plotDiscTimes()
     TS.plotScaledSol()
