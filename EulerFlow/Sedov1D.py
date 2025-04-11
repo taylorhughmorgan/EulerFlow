@@ -25,6 +25,7 @@ class SedovBlast:
                  order: int=0,              # order of the equations, 0=cartesian, 1-cylindrical, 2=spherical
                  gamma: float=1.4,          # ratio of specific heats, N/A
                  minNGridPts: int=500,      # minimum number of grid points
+                 relaxFactor: float=0.15,   # step function relaxation factor, improves numerical stability
                  ):
         """
         Convert the parameters of the Sedov Blast to nondimensional form, for speed and numerical stability.
@@ -65,13 +66,14 @@ class SedovBlast:
         #self.p0   = np.ones_like(self.grid)
         self.v0   = np.zeros_like(self.grid)
         ## use hyperbolic tangent instead of step function for numerical stability
-        self.p0   = pExpStar * hyperbolic_step(self.grid, rExpStar, delta=0.15)
+        self.p0   = pExpStar * hyperbolic_step(self.grid, rExpStar, delta=relaxFactor)
         self.p0[self.p0 < 1] = 1.0
 
         ## time and grid in dimensional/metric scale
         self.r__m = self.grid * ScaleLen__m
         self.UScale = UScale
     
+
     def solve(self,
               method: str='RK45',
               terminate: bool=False,    # terminate prematurely if the shock front reaches the end of the domain
@@ -159,15 +161,30 @@ if __name__ == '__main__':
     LenScale__m = 1     # length scale of the problem
     DomainLen__m = 10   # size of the domain
     PAmb__Pa = 101325   # ambient air pressure
-    PExpl__Pa = 70*PAmb__Pa # Explosive pressure
-    RExpl__m = 1.0      # radius of explosion
+    PExpl__Pa = 20*PAmb__Pa # Explosive pressure
+    RExpl__m = 0.5      # radius of explosion
     tFin__s  = 0.016    # final simulation time
     rhoAmb__kgpm3=1.225 # ambient air density
     orders = 2          # order of solution
 
     Blast = SedovBlast(LenScale__m, DomainLen__m, RExpl__m, PExpl__Pa, tFin__s,
-                    P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders)
+                    P0__Pa=PAmb__Pa, rho0__kgpm3=rhoAmb__kgpm3, order=orders,
+                    relaxFactor=0.15)
     Blast.solve(terminate=False)
     Blast.dispFields()
     Blast.plotDiscTimes()
+
+    #%% compare to analytical solution
+    from EulerFlow.taylorNeumannSedov import TaylorSol
+    TS = TaylorSol(10*Blast.EExpl__J, DomainLen__m, 
+                   rho0__kgpm3=rhoAmb__kgpm3, press0__Pa=PAmb__Pa)
+    #%% plotting
+    test_it = 400
+    fig = plt.figure()
+    plt.plot(Blast.r__m, Blast.p[:,test_it], label='numerical')
+    plt.plot(TS.rGrid, TS.p[:,test_it*2], label='analytical')
+    plt.xlabel('radial grid (m)')
+    plt.ylabel('pressure (psi)')
+    plt.legend()
+    plt.grid(True)
 # %%

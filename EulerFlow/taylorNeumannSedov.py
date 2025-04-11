@@ -6,8 +6,18 @@ Description: Solve the Taylor-Von Neumann-Sedov analytical solution to the Euler
 """
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import least_squares
+from scipy.optimize import minimize
 from tqdm import tqdm
+
+def ZVfunc(V, gamma):
+    """ Z as a function of V """
+    return (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
+
+def GVfunc(V, gamma, nu):
+    """ G as a function of V """
+    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
+    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
+    return (gamma + 1) / (gamma - 1) * common_term2**nu[2] * common_term1**nu[3] * ((gamma + 1) / (gamma - 1) * (1 - V))**nu[4]
 
 def self_similar_sol(X, xi, gamma, nu):
     """ system of nonlinear equations that describe the self-similar solution to the Euler equations"""
@@ -17,16 +27,16 @@ def self_similar_sol(X, xi, gamma, nu):
     common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
     ## describe the RHS to Z, xi, and G equations
     rhsZ  = (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
-    rhsXi = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
+    rhsV = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
     rhsG  = (gamma + 1)/(gamma - 1) * common_term2**nu[2] * common_term1**nu[3] * ((gamma + 1) / (gamma - 1) * (1 - V))**nu[4]
-    return [Z - rhsZ, xi**5 - rhsXi, G - rhsG]
+    return [Z - rhsZ, xi**(5./3.) - rhsV**(1./3.), G - rhsG]
         
 def self_similar_Vxi(V, xi, gamma, nu):
     """ self-similar solution to calculate V as a function of xi """
     common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
     common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
     rhsV = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
-    return xi**5 - rhsV
+    return np.abs(xi - rhsV**(1./5.))
 
 class TaylorSol:
     def __init__(self, 
@@ -54,21 +64,32 @@ class TaylorSol:
         self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
         self.sols   = np.zeros((npts,3))
         self.residuals = np.zeros_like(self.sols)
-        initial_guess = [1, 2/(gamma+1), 1]
+        initial_guess = 2 / (gamma + 1) #[1, 2/(gamma+1), 1]
 
         print("Solving self-similar solution...")
         for i, xi in tqdm(enumerate(self.xi_arr), total=npts):
             ## enforcing bounds on V to keep the solution real/stable
-            res = least_squares(self_similar_sol, initial_guess, 
-                                args=(xi, gamma, self.nus),
-                                bounds=((-np.inf, 1./gamma, -np.inf), (np.inf, 5/(3*gamma - 1), np.inf))
-                                )
-            self.sols[i,:] = res.x
-            self.residuals[i,:] = self_similar_sol(res.x, xi, gamma, self.nus)
+            res = minimize(self_similar_Vxi, initial_guess,
+                           args=(xi, gamma, self.nus),
+                           bounds=((1./gamma, 5 / (3 * gamma - 1)),),
+                           method='L-BFGS-B', tol=1e-12,
+                           )
+            VTemp = res.x
+            GTemp = GVfunc(VTemp, gamma, self.nus)
+            ZTemp = ZVfunc(VTemp, gamma)
+            if xi < 0.2:
+                ZTemp = ZVfunc(VTemp + xi * 1e-10, gamma)
+            tempSol = np.array([ZTemp, VTemp, GTemp]) #res.x
+            self.sols[i,:] = tempSol.T
+            self.residuals[i,:] = np.array(self_similar_sol(tempSol, xi, gamma, self.nus)).T
             ## use solution as next iteration's guess
             initial_guess = res.x
         
         self.Z, self.V, self.G = self.sols.T
+        ## calculating residual error
+        self.totreserror = np.linalg.norm(self.residuals, axis=1)
+        self.toterror = np.sum(self.totreserror)
+        
         ## interpolating Z, V, and G vs xi
         self.Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
         self.V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
@@ -78,7 +99,7 @@ class TaylorSol:
         integrand = self.G * (self.V**2 / 2 + self.Z / (gamma * (gamma - 1))) * self.xi_arr**4
         rhs = -np.trapz(integrand, x=self.xi_arr)
         self.beta = (25 / (16 * np.pi * rhs))**(1./5.)
-        print(f"For gamma={gamma:.1f}, beta={self.beta}")
+        print(f"For gamma={gamma:.1f}, beta={self.beta}, total error={self.toterror:.2f}")
 
         ## converting to primative variables
         def R_t(t: float):
@@ -170,6 +191,7 @@ class TaylorSol:
         eachPlot(axes[1], self.V, r"$V(\xi)$")
         eachPlot(axes[2], self.G, r"$G(\xi)$")
         eachPlot(axes[3], np.linalg.norm(self.residuals, axis=1), r"$residuals(\xi)$", logPlot=True)
+        axes[3].set_xlabel(r'$\xi$')
 
     def plotScaledSol(self):
         """ Plot the scaled, self-similar solution p/p1, v/v1, rho/rho1 """
@@ -193,13 +215,14 @@ class TaylorSol:
         ax2 = ax.twinx()
         ax2.plot(self.xi_arr, T_over_T1, 'r', label=r'$T/T_1$')
         ax2.legend(loc='upper center')
+        ax2.set_ylim([0, 1000])
 
 if __name__ == '__main__':
-    Eblast__J  = 1e8    ## blast energy
+    Eblast__J  = 1e10   ## blast energy
     rDomain__m = 20     ## domain of the problem
 
-    TS = TaylorSol(Eblast__J, rDomain__m, npts=250)
+    TS = TaylorSol(Eblast__J, rDomain__m)
     TS.plotSelfSimilar()
-    TS.dispFields()
-    TS.plotDiscTimes()
+    #TS.dispFields()
+    #TS.plotDiscTimes()
     TS.plotScaledSol()
