@@ -8,35 +8,47 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from tqdm import tqdm
+import time
 
-def ZVfunc(V, gamma):
-    """ Z as a function of V """
-    return (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
+class selfSimilarSol:
+    """ Right hand side (RHS) of self-similar solution to the Sedov Von-Nuemann Taylor solution to the Euler eqns"""
+    def __init__(self, gamma, xi):
+        self.gamma = gamma
+        self.xi = xi
+        ## gamma-dependent coefficients to the sedov problem
+        self.nu = np.zeros(5)
+        self.nu[0] = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
+        self.nu[1] = 5 * (gamma - 1) / (2*gamma + 1)
+        self.nu[2] = 3.0 / (2*gamma + 1)
+        self.nu[3] = -self.nu[0] / (2 - gamma)
+        self.nu[4] = -2.0 / (2 - gamma)
+    
+    def Zrhs(self, V):
+        # right hand side of Z (function of V)
+        return (self.gamma * (self.gamma - 1) * (1 - V) * V**2) / (2 * (self.gamma * V - 1))
+    
+    def Grhs(self, V):
+        # right hand side of G (function of V)
+        term1 = (self.gamma + 1) / (7 - self.gamma) * (5 - (3 * self.gamma - 1) * V)
+        term2 = (self.gamma + 1) / (self.gamma - 1) * (self.gamma * V - 1)
+        return (self.gamma + 1) / (self.gamma - 1) * term2**self.nu[2] * \
+            term1**self.nu[3] * ((self.gamma + 1) / (self.gamma - 1) * (1 - V))**self.nu[4]
 
-def GVfunc(V, gamma, nu):
-    """ G as a function of V """
-    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
-    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
-    return (gamma + 1) / (gamma - 1) * common_term2**nu[2] * common_term1**nu[3] * ((gamma + 1) / (gamma - 1) * (1 - V))**nu[4]
+    def Vrhs(self, V):
+        # right hand side of xi-V equation (xi as a function of V)
+        term1 = (self.gamma + 1) / (7 - self.gamma) * (5 - (3*self.gamma - 1) * V)
+        term2 = (self.gamma + 1) / (self.gamma - 1) * (self.gamma * V - 1)
+        return (0.5 * (self.gamma + 1) * V)**-2 * term1**self.nu[0] * term2**self.nu[1]
 
-def self_similar_sol(X, xi, gamma, nu):
-    """ system of nonlinear equations that describe the self-similar solution to the Euler equations"""
-    Z, V, G = X
-    ## common terms that appears in both Xi and G right-hand-sides (RHS)
-    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
-    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
-    ## describe the RHS to Z, xi, and G equations
-    rhsZ  = (gamma * (gamma - 1) * (1 - V) * V**2) / (2 * (gamma * V - 1))
-    rhsV = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
-    rhsG  = (gamma + 1)/(gamma - 1) * common_term2**nu[2] * common_term1**nu[3] * ((gamma + 1) / (gamma - 1) * (1 - V))**nu[4]
-    return [Z - rhsZ, xi**(5./3.) - rhsV**(1./3.), G - rhsG]
-        
-def self_similar_Vxi(V, xi, gamma, nu):
-    """ self-similar solution to calculate V as a function of xi """
-    common_term1 = (gamma + 1) / (7 - gamma) * (5 - (3*gamma - 1) * V)
-    common_term2 = (gamma + 1) / (gamma - 1) * (gamma * V - 1)
-    rhsV = (0.5 * (gamma + 1) * V)**-2 * common_term1**nu[0] * common_term2**nu[1]
-    return np.abs(xi - rhsV**(1./5.))
+    def residual(self, X):
+        # calculate the residuals by taking the difference between X, V, and G and their RHS
+        Z, V, G = X
+        return np.array([Z - self.Zrhs(V), self.xi - self.Vrhs(V)**(1./5.), G - self.Grhs(V)])
+    
+    def __call__(self, V):
+        # objective function for calling minimization
+        return np.abs( self.xi - self.Vrhs(V)**(1./5.) )
+
 
 class TaylorSol:
     def __init__(self, 
@@ -53,13 +65,6 @@ class TaylorSol:
         self.rho0__kgpm3 = rho0__kgpm3
         self.press0__Pa  = press0__Pa
         self.EBlast__J   = EBlast
-        ## gamma-dependent coefficients to the sedov problem
-        self.nus = np.zeros(5)
-        self.nus[0] = -(13 * gamma**2 - 7 * gamma + 12) / ((3*gamma - 1) * (2*gamma + 1))
-        self.nus[1] = 5 * (gamma - 1) / (2*gamma + 1)
-        self.nus[2] = 3.0 / (2*gamma + 1)
-        self.nus[3] = -self.nus[0] / (2 - gamma)
-        self.nus[4] = -2.0 / (2 - gamma)
         
         ## looping through xi and solving the system of equation
         self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
@@ -68,23 +73,28 @@ class TaylorSol:
         initial_guess = 2 / (gamma + 1) #[1, 2/(gamma+1), 1]
 
         print("Solving self-similar solution...")
+        simfunc = selfSimilarSol(gamma, self.xi_arr[-1])
+        start_time = time.perf_counter()
         for i, xi in tqdm(enumerate(self.xi_arr), total=npts):
             ## enforcing bounds on V to keep the solution real/stable
-            res = minimize(self_similar_Vxi, initial_guess,
-                           args=(xi, gamma, self.nus),
+            simfunc.xi = xi
+            res = minimize(simfunc, initial_guess,
                            bounds=((1./gamma, 5 / (3 * gamma - 1)),),
                            method='L-BFGS-B', tol=1e-12,
                            )
             VTemp = res.x
-            GTemp = GVfunc(VTemp, gamma, self.nus)
-            ZTemp = ZVfunc(VTemp, gamma)
+            GTemp = simfunc.Grhs(VTemp)
+            ZTemp = simfunc.Zrhs(VTemp)
             tempSol = np.array([ZTemp, VTemp, GTemp])
             self.sols[i,:] = tempSol.T
-            self.residuals[i,:] = np.array(self_similar_sol(tempSol, xi, gamma, self.nus)).T
+            self.residuals[i,:] = simfunc.residual(tempSol).T
             ## use solution as next iteration's guess
             initial_guess = res.x
-        
+
+        execution_time = time.perf_counter() - start_time
+        print(f"self-similar solution reached for {npts} points in {execution_time:.3f}s.")
         self.Z, self.V, self.G = self.sols.T
+        
         ## calculating residual error
         self.totreserror = np.linalg.norm(self.residuals, axis=1)
         self.toterror = np.sum(self.totreserror)
@@ -114,14 +124,15 @@ class TaylorSol:
         self.p   = np.ones_like(self.T) * press0__Pa
 
         ## determining what variables are within the shock
-        ShockLoc = self.R_t(self.T) + 1e-10 # offsetting shock by incredibly small number to avoid overruns
-        self.isInShock = self.R < ShockLoc
-        xi = self.R * self.isInShock / ShockLoc
+        ShockLoc = self.R_t(self.T) # offsetting shock by incredibly small number to avoid overruns
+        isInShock = self.R < ShockLoc
+        xi = self.R * isInShock / ShockLoc
+
         ## converting xi to primatives
-        rho = rho0__kgpm3 * self.G_xi(xi) * self.isInShock
-        self.rho = rho
-        self.v   = (2 * self.R / (5 * self.T)) * self.V_xi(xi) * self.isInShock
-        self.p  += (rho / gamma) * self.Z_xi(xi) * (2 * self.R / (5 * self.T))**2
+        rho = rho0__kgpm3 * self.G_xi(xi[isInShock])
+        self.rho[isInShock] = rho
+        self.v[isInShock]   = (2 * self.R[isInShock] / (5 * self.T[isInShock])) * self.V_xi(xi[isInShock])
+        self.p[isInShock]  += (rho / gamma) * self.Z_xi(xi[isInShock]) * (2 * self.R[isInShock] / (5 * self.T[isInShock]))**2
 
         ## rho, v, and p will have nan values at R and T=0, set them to default values
         self.rho[np.isnan(self.rho)] = rho0__kgpm3
@@ -211,12 +222,15 @@ class TaylorSol:
         ax.set_xlabel(r"$\xi$")
         ax.grid(True)
         ax.legend(loc='center left')
+        ax.set_ylim([0,1])
 
         ## plotting temperature on another axis
         ax2 = ax.twinx()
         ax2.plot(self.xi_arr, T_over_T1, 'r', label=r'$T/T_1$')
         ax2.legend(loc='upper center')
         ax2.set_ylim([0, 1000])
+        ax2.tick_params(axis='y', colors='r')
+        ax2.set_ylim([0,1000])
 
 
 if __name__ == '__main__':
