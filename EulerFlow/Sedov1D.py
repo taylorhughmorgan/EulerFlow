@@ -197,11 +197,13 @@ if __name__ == '__main__':
     ax[0].set_ylabel('pressure (psi)')
     ax[0].legend()
     ax[0].grid(True)
+    ax[0].set_ylim([PAmb__Pa, Blast.p.max()])
     ## plotting max velocity
     ax[1].plot(Blast.r__m, Blast.u.max(axis=1), label='numerical')
     ax[1].plot(TS.rGrid, TS.v.max(axis=1), label='analytic')
     ax[1].set_ylabel('velocity (m/s)')
     ax[1].set_xlabel('radial grid (m)')
     ax[1].grid(True)
+    ax[1].set_ylim([0, Blast.u.max()])
 
 # %%

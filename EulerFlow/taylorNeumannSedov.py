@@ -57,8 +57,10 @@ class TaylorSol:
                  rho0__kgpm3: float=1.225,  # ambient air density, kg/m^3
                  press0__Pa: float=101325,  # ambient air pressure, Pa
                  npts: int=500,             # number of spatial points to solve for
-                 time_interval: str='quadratic',
-                 gamma: float=1.4,
+                 time_interval: str='quadratic',# time scaling of the problem, either 'linear' or 'quadratic'
+                 gamma: float=1.4,          # ratio of specific heats
+                 tStart: float=0.0,         # start time in seconds
+                 method: str='TNC',    # solution method used
                  ):
         """ Sedov solution """
         self.gamma = gamma
@@ -80,7 +82,7 @@ class TaylorSol:
             simfunc.xi = xi
             res = minimize(simfunc, initial_guess,
                            bounds=((1./gamma, 5 / (3 * gamma - 1)),),
-                           method='L-BFGS-B', tol=1e-12,
+                           method=method, tol=1e-12,
                            )
             VTemp = res.x
             GTemp = simfunc.Grhs(VTemp)
@@ -92,7 +94,7 @@ class TaylorSol:
             initial_guess = res.x
 
         execution_time = time.perf_counter() - start_time
-        print(f"self-similar solution reached for {npts} points in {execution_time:.3f}s.")
+        print(f"self-similar solution reached for {npts} points in {execution_time:.2f}s using '{method}' method.")
         self.Z, self.V, self.G = self.sols.T
         
         ## calculating residual error
@@ -115,7 +117,13 @@ class TaylorSol:
         print(f"For domain size ={rDomain:.2f}m, time-of-shock arrival = {1000*self.tFinal:.2f}ms")
 
         ## setting up spatial and temporal grid
-        self.tGrid = np.linspace(0, self.tFinal, num=npts)
+        if time_interval == 'linear':
+            self.tGrid = np.linspace(tStart, self.tFinal, num=npts)
+        elif time_interval == 'quadratic':
+            self.tGrid = np.linspace(np.sqrt(tStart), np.sqrt(self.tFinal), num=npts)**2
+        else:
+            raise Exception(f"'{time_interval}' is not an acceptable argument for time scaling.")
+        
         self.rGrid = np.linspace(0, rDomain, num=npts)
         self.T, self.R = np.meshgrid(self.tGrid, self.rGrid)
         ## initializing primatives
@@ -234,11 +242,14 @@ class TaylorSol:
 
 
 if __name__ == '__main__':
+    #%%
     Eblast__J  = 1e10   ## blast energy
     rDomain__m = 20     ## domain of the problem
 
-    TS = TaylorSol(Eblast__J, rDomain__m)
+    TS = TaylorSol(Eblast__J, rDomain__m, 
+                   time_interval='quadratic', method='TNC')
     TS.plotSelfSimilar()
     TS.dispFields()
     TS.plotDiscTimes()
     TS.plotScaledSol()
+# %%
