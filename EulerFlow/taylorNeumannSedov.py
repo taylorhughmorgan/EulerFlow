@@ -121,6 +121,8 @@ class TaylorSol:
             self.tGrid = np.linspace(tStart, self.tFinal, num=npts)
         elif time_interval == 'quadratic':
             self.tGrid = np.linspace(np.sqrt(tStart), np.sqrt(self.tFinal), num=npts)**2
+            # sometimes the final value in tGrid is greater than the final time
+            self.tGrid[self.tGrid > self.tFinal] = self.tFinal
         else:
             raise Exception(f"'{time_interval}' is not an acceptable argument for time scaling.")
         
@@ -154,6 +156,18 @@ class TaylorSol:
         ## function determining shock wave position as a function of time
         return self.beta * (self.EBlast__J * t**2 / self.rho0__kgpm3)**(1./5.)
     
+    def vrt_func(self, t, r):
+        """ Return the flow velocity as a function of radial distance and time """
+        rShockFront = self.R_t(t)
+        #vr = np.zeros_like(r)
+        #xi = r / rShockFront
+        #vr[r < rShockFront] = (2 * r / (5 * t)) * self.V_xi(xi)
+        if r > rShockFront:
+            return 0
+        else:
+            xi = r / rShockFront
+            return (2 * r / (5 * t)) * self.V_xi(xi)
+        
     def dispFields(self):
         """ Display the field variables as functions of space and time """
         fig, axes = plt.subplots(nrows=2, ncols=2)
