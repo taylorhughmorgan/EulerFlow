@@ -167,6 +167,40 @@ class TaylorSol:
         else:
             xi = r / rShockFront
             return (2 * r / (5 * t)) * self.V_xi(xi)
+    
+    def rhort_func(self, t, r):
+        """ Return the flow density as a function of radial distance and time """
+        rShockFront = self.R_t(t)
+        if r > rShockFront:
+            return self.rho0__kgpm3
+        else:
+            xi = r / rShockFront
+            return self.rho0__kgpm3 * self.G_xi(xi)
+        
+
+    def prt_func(self, t, r):
+        """ Return the flow pressure as a function of radial distance and time """
+        rShockFront = self.R_t(t)
+        if r > rShockFront:
+            return self.press0__Pa
+        else:
+            xi = r / rShockFront
+            rho = self.rhort_func(t, r)
+            return (rho / self.gamma) * self.Z_xi(xi) * (2 * r / (5 * t))**2
+    
+    def flow_funcs(self, t, r):
+        """ Return the flow density, pressure, and velocity as a function of radial distance and time """
+        rShockFront = self.R_t(t)
+        if r > rShockFront:
+            rho = self.rho0__kgpm3
+            press = self.press0__Pa
+            vel = 0.0
+        else:
+            xi = r / rShockFront
+            rho = self.rhort_func(t, r)
+            press =  (rho / self.gamma) * self.Z_xi(xi) * (2 * r / (5 * t))**2
+            vel = (2 * r / (5 * t)) * self.V_xi(xi)
+        return np.array([rho, press, vel])
         
     def dispFields(self):
         """ Display the field variables as functions of space and time """
