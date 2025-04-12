@@ -9,16 +9,35 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from EulerFlow import TaylorSol
 
-class particle_ode_1ds:
-    """ system of equations for propagating a particle in a given flow 
+class drag_ode_1ds:
+    """ system of equations for drag-propagating a particle in a given flow 
     state in 1D spherically-symmetric coordinates. """
-    def __init__(self, FlowState: TaylorSol):
+    def __init__(self, 
+                 FlowState: TaylorSol,  # flow state 
+                 mass__kg: float,       # particle mass
+                 Aref__m2: float,       # particle ballistic reference area
+                 Cd__: float,           # particle drag coefficient
+                 ):
         self.FlowState = FlowState
+        self.mass = mass__kg
+        self.Aref = Aref__m2
+        self.Cd__ = Cd__
 
     def __call__(self, t, y, *args, **kwds):
-        """ system of equations: d(x_r)/dt = v_r and d(v_r)/dt = F_d """
-        rho, press, vr = self.FlowState.flow_funcs(t, y)
-        return vr
+        """ system of equations: 
+            d(x_r)/dt = v_r 
+            d(v_r)/dt = F_d / m 
+        """
+        r, v_r = y
+        # calculate the flow state
+        rho_flow, press_flow, vr_flow = self.FlowState.flow_funcs(t, r)
+        # calculate the reference velocity, aka diference between particle and flow velocity
+        delta_vr = vr_flow - v_r
+        # calculate drag force
+        F_r = 0.5 * self.Cd__ * rho_flow * self.Aref * delta_vr * np.abs(delta_vr)
+        a_r = F_r / self.mass
+        return np.array([v_r, a_r])
+
 
 class PropagateParticle1ds:
     """ Propagate particles in 1D spherical coordinates"""
@@ -26,25 +45,33 @@ class PropagateParticle1ds:
         self.FlowState = FlowState
         self.__solution_reached = False
 
-    def solve(self, r0, tFinal):
+    def solve(self, 
+              r0: float,        # initial position
+              v0: float,        # initial velocity
+              tFinal: float,    # final time
+              part_mass: float, # particle mass
+              part_Aref: float, # particle reference area
+              part_Cd: float,   # particle drag coefficient
+              ):
         """ Simulate the particle in a given Flow State"""
         # time domain
         tRange = [0, tFinal]
         tSol = np.linspace(tRange[0], tRange[1], num=200)
-        r0 = np.array([r0])
+        r0 = np.array([r0, v0])
         # set up system of equations and solve
-        part = particle_ode_1ds(TS)
+        part = drag_ode_1ds(TS, part_mass, part_Aref, part_Cd)
         res = solve_ivp(part, tRange, r0, t_eval=tSol)
 
         # save the solution
         self.tSol = res.t
         self.t__ms = 1000 * res.t
-        self.r__m  = res.y.T
+        self.r__m  = res.y[0,:]
+        self.vr__mps = res.y[1,:]
         
-        ## calculating velocity
-        self.vr__mps = np.zeros_like(self.r__m)
+        ## calculating flow velocity
+        self.vrflow__mps = np.zeros_like(self.r__m)
         for i, t in enumerate(self.tSol):
-            self.vr__mps[i] = TS.vrt_func(t, res.y[0,i])
+            self.vrflow__mps[i] = TS.vrt_func(t, res.y[0,i])
 
         self.__solution_reached = True
 
@@ -59,14 +86,15 @@ class PropagateParticle1ds:
         ax.grid(True)
 
         ax2 = ax.twinx()
-        ax2.plot(self.t__ms, self.vr__mps, 'r')
+        ax2.plot(self.t__ms, self.vr__mps, 'r', label='particle vel')
+        ax2.plot(self.t__ms, self.vrflow__mps, 'r--', label='flow vel')
         ax2.set_ylabel('velocity (m/s)')
         ax2.tick_params(axis='y', colors='r')
 
 
 if __name__ == '__main__':
-    Eblast__J  = 1e10   ## blast energy
-    rDomain__m = 20     ## domain of the problem
+    Eblast__J  = 1e10   # blast energy
+    rDomain__m = 20     # domain of the problem
     #%% resolving the blast flow field
     TS = TaylorSol(Eblast__J, rDomain__m, 
                    time_interval='quadratic', method='TNC')
@@ -76,8 +104,19 @@ if __name__ == '__main__':
     TS.plotScaledSol()
 
     #%% simulate the particle propagation in the blast wave
+    # assume 1kg cube of cork
+    mass__kg    = 1.0       # particle mass
+    rho__kgpm3  = 200.0     # particle density
+    # calculating volume, radius, ballistic reference area
+    vol__m3     = mass__kg / rho__kgpm3
+    radius__m   = vol__m3 ** (1./3.)
+    Aref__m2    = radius__m**2
+    Cd__        = 0.75      # drag coefficient
+    r0__m       = 10.0      # initial position
+    vr0__mps    = 0.0       # initial velocity
+
     traj = PropagateParticle1ds(TS)
-    traj.solve(10, 2*TS.tFinal)
+    traj.solve(r0__m, vr0__mps, 5*TS.tFinal, mass__kg, Aref__m2, Cd__)
     traj.plotTraj()
 
 # %%
