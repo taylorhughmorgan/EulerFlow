@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-Author: Hugh Morgan
-Date: 2024-08-26
-Description: Solve the Taylor-Von Neumann-Sedov analytical solution to the Euler Equations using the self-similarity variable approach.
+@author: Hugh Morgan
+@date: 2024-08-26
+@description: Solve the Taylor-Von Neumann-Sedov analytical solution to the Euler Equations using the self-similarity variable approach.
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,14 +59,16 @@ class TaylorSol:
                  npts: int=500,             # number of spatial points to solve for
                  time_interval: str='quadratic',# time scaling of the problem, either 'linear' or 'quadratic'
                  gamma: float=1.4,          # ratio of specific heats
+                 mu__Pas: float=1.789e-5,   # dynamic viscosity, Pascal-seconds
                  tStart: float=0.0,         # start time in seconds
-                 method: str='TNC',    # solution method used
+                 method: str='TNC',         # solution method used
                  ):
         """ Sedov solution """
         self.gamma = gamma
         self.rho0__kgpm3 = rho0__kgpm3
         self.press0__Pa  = press0__Pa
         self.EBlast__J   = EBlast
+        self.mu__Pas     = mu__Pas
         
         ## looping through xi and solving the system of equation
         self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
@@ -105,6 +107,18 @@ class TaylorSol:
         self.Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
         self.V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
         self.G_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.G[::-1])
+        
+        # reversing xi and V for readability
+        xi_rev = self.xi_arr[::-1]
+        V_rev = self.V[::-1]
+        # calculating the gradient and laplacian
+        V_grad = (V_rev[1:] - V_rev[:-1]) / (xi_rev[1:] - xi_rev[:-1])
+        xi_mid = (xi_rev[1:] + xi_rev[:-1]) / 2
+        V_grad2 = (V_rev[2:] - 2 * V_rev[1:-1] + V_rev[:-2]) / (xi_rev[2:] - xi_rev[:-2])**2
+        xi_mid2 = (xi_rev[2:] + xi_rev[:-2]) / 2
+        # interpolating
+        self.Vgrad_xi = lambda xi: np.interp(xi, xi_mid, V_grad)
+        self.Vgrad2_xi = lambda xi: np.interp(xi, xi_mid2, V_grad2)
 
         ## calculating beta value, should be around 1.033 for gamma=1.4
         integrand = self.G * (self.V**2 / 2 + self.Z / (gamma * (gamma - 1))) * self.xi_arr**4
@@ -159,9 +173,6 @@ class TaylorSol:
     def vrt_func(self, t, r):
         """ Return the flow velocity as a function of radial distance and time """
         rShockFront = self.R_t(t)
-        #vr = np.zeros_like(r)
-        #xi = r / rShockFront
-        #vr[r < rShockFront] = (2 * r / (5 * t)) * self.V_xi(xi)
         if r > rShockFront:
             return 0
         else:
@@ -201,7 +212,31 @@ class TaylorSol:
             press =  (rho / self.gamma) * self.Z_xi(xi) * (2 * r / (5 * t))**2
             vel = (2 * r / (5 * t)) * self.V_xi(xi)
         return np.array([rho, press, vel])
+    
+
+    def dvrdtrt_func(self, t, r):
+        """ Return the flow pressure as a function of radial distance and time """
+        rShockFront = self.R_t(t)
+        if r > rShockFront:
+            return 0.0
+        else:
+            xi = r / rShockFront
+            return (-2 * r / (5 * t **2 ) ) * (self.V_xi(xi) + 2. / 5. * xi * self.Vgrad_xi(xi) )
+            
+
+    def gradP_func(self, t, r):
+        """ calculate the pressure gradient across the particle """
+        rShockFront = self.R_t(t)
+        if r > rShockFront:
+            return 0.0
+        else:
+            xi = r / rShockFront
+            rho_flow = self.rhort_func(t, r)
+            Duf_Dt = self.dvrdtrt_func(t, r) + 2 * self.vrt_func(t, r) * (self.V_xi(xi) + xi * self.Vgrad_xi(xi) )
+            del2_uf = (1. / (5 * r * t)) * (4 * self.V_xi(xi) + 8 * xi * self.Vgrad_xi(xi) + 2 * xi**2 * self.Vgrad2_xi(xi) )
+            return -rho_flow * Duf_Dt + self.mu__Pas * del2_uf
         
+
     def dispFields(self):
         """ Display the field variables as functions of space and time """
         fig, axes = plt.subplots(nrows=2, ncols=2)
@@ -264,7 +299,6 @@ class TaylorSol:
     def plotScaledSol(self):
         """ Plot the scaled, self-similar solution p/p1, v/v1, rho/rho1 """
         ## scaling parameters: rho1, p1, v1
-        rho1 = self.rho0__kgpm3 * (self.gamma + 1) / (self.gamma - 1)
         rho_over_rho1 = self.G * (self.gamma - 1) / (self.gamma + 1)
         v_over_v1 = self.xi_arr * self.V * (self.gamma + 1) / 2
         p_over_p1 = self.xi_arr**2 * self.G * self.Z * (self.gamma + 1) / (2 * self.gamma)
