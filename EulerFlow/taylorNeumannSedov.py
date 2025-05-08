@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from tqdm import tqdm
 import time
+from scipy.optimize import curve_fit
+
+def P_ratio_fit(x, a, b, c):
+    return a + b * x ** c
 
 class selfSimilarSol:
     """ Right hand side (RHS) of self-similar solution to the Sedov Von-Nuemann Taylor solution to the Euler eqns"""
@@ -71,7 +75,7 @@ class TaylorSol:
         self.mu__Pas     = mu__Pas
         
         ## looping through xi and solving the system of equation
-        self.xi_arr = np.linspace(0, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
+        self.xi_arr = np.linspace(1e-10, 1, num=npts)[::-1] ## looping backwards because the solution at xi=1 is known, use last solution as next guess
         self.sols   = np.zeros((npts,3))
         self.residuals = np.zeros_like(self.sols)
         initial_guess = 2 / (gamma + 1) #[1, 2/(gamma+1), 1]
@@ -89,6 +93,7 @@ class TaylorSol:
             VTemp = res.x
             GTemp = simfunc.Grhs(VTemp)
             ZTemp = simfunc.Zrhs(VTemp)
+            # combine results
             tempSol = np.array([ZTemp, VTemp, GTemp])
             self.sols[i,:] = tempSol.T
             self.residuals[i,:] = simfunc.residual(tempSol).T
@@ -99,26 +104,34 @@ class TaylorSol:
         print(f"self-similar solution reached for {npts} points in {execution_time:.2f}s using '{method}' method.")
         self.Z, self.V, self.G = self.sols.T
         
+        ## scaling parameters: rho1, p1, v1
+        self.rho_over_rho1 = self.G * (self.gamma - 1) / (self.gamma + 1)
+        self.v_over_v1 = self.xi_arr * self.V * (self.gamma + 1) / 2
+        self.p_over_p1 = self.xi_arr**2 * self.G * self.Z * (self.gamma + 1) / (2 * self.gamma)
+        self.T_over_T1 = self.xi_arr**2 * self.Z * (self.gamma + 1)**2 / (2 * self.gamma * (self.gamma - 1))
+
+        # Treat Z seperetly - it becomes noisy for xi < 0.25
+        xi_above      = self.xi_arr[self.xi_arr > 0.3]
+        p_ratio_above = self.p_over_p1[self.xi_arr > 0.3]
+        # find what p/p1 converges to for xi > 0.3
+        popt, pcov  = curve_fit(P_ratio_fit, xi_above, p_ratio_above)
+        self.p_ratio_fit = P_ratio_fit(self.xi_arr, *popt)
+        xi_below = self.xi_arr[self.xi_arr < 0.3]
+        p_ratio_below = self.p_ratio_fit[self.xi_arr < 0.3]
+        self.Z[self.xi_arr < 0.3] = (2 * self.gamma) / (self.gamma + 1) * p_ratio_below / (xi_below**2 * self.G[self.xi_arr < 0.3])
+        
         ## calculating residual error
         self.totreserror = np.linalg.norm(self.residuals, axis=1)
         self.toterror = np.sum(self.totreserror)
-        
-        ## interpolating Z, V, and G vs xi
-        self.Z_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
-        self.V_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.V[::-1])
-        self.G_xi = lambda xi: np.interp(xi, self.xi_arr[::-1], self.G[::-1])
         
         # reversing xi and V for readability
         xi_rev = self.xi_arr[::-1]
         V_rev = self.V[::-1]
         # calculating the gradient and laplacian
-        V_grad = (V_rev[1:] - V_rev[:-1]) / (xi_rev[1:] - xi_rev[:-1])
-        xi_mid = (xi_rev[1:] + xi_rev[:-1]) / 2
-        V_grad2 = (V_rev[2:] - 2 * V_rev[1:-1] + V_rev[:-2]) / (xi_rev[2:] - xi_rev[:-2])**2
-        xi_mid2 = (xi_rev[2:] + xi_rev[:-2]) / 2
-        # interpolating
-        self.Vgrad_xi = lambda xi: np.interp(xi, xi_mid, V_grad)
-        self.Vgrad2_xi = lambda xi: np.interp(xi, xi_mid2, V_grad2)
+        self.__Vgrad   = (V_rev[1:] - V_rev[:-1]) / (xi_rev[1:] - xi_rev[:-1])
+        self.__xi_mid  = (xi_rev[1:] + xi_rev[:-1]) / 2
+        self.__Vgrad2  = (V_rev[2:] - 2 * V_rev[1:-1] + V_rev[:-2]) / (xi_rev[2:] - xi_rev[:-2])**2
+        self.__xi_mid2 = (xi_rev[2:] + xi_rev[:-2]) / 2
 
         ## calculating beta value, should be around 1.033 for gamma=1.4
         integrand = self.G * (self.V**2 / 2 + self.Z / (gamma * (gamma - 1))) * self.xi_arr**4
@@ -165,6 +178,13 @@ class TaylorSol:
         self.E = self.p / (self.rho * (gamma - 1)) + 0.5 * self.v**2
         print("Primative variables calculated")
 
+    # interpolating Z, V, and G vs xi
+    def Z_xi(self, xi): return np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
+    def V_xi(self, xi): return np.interp(xi, self.xi_arr[::-1], self.V[::-1])
+    def G_xi(self, xi): return np.interp(xi, self.xi_arr[::-1], self.G[::-1])
+    # interpolating
+    def Vgrad_xi(self, xi): return np.interp(xi, self.__xi_mid, self.__Vgrad)
+    def Vgrad2_xi(self, xi): return np.interp(xi, self.__xi_mid2, self.__Vgrad2)
 
     def R_t(self, t: float):
         ## function determining shock wave position as a function of time
@@ -298,17 +318,12 @@ class TaylorSol:
 
     def plotScaledSol(self):
         """ Plot the scaled, self-similar solution p/p1, v/v1, rho/rho1 """
-        ## scaling parameters: rho1, p1, v1
-        rho_over_rho1 = self.G * (self.gamma - 1) / (self.gamma + 1)
-        v_over_v1 = self.xi_arr * self.V * (self.gamma + 1) / 2
-        p_over_p1 = self.xi_arr**2 * self.G * self.Z * (self.gamma + 1) / (2 * self.gamma)
-        T_over_T1 = self.xi_arr**2 * self.Z * (self.gamma + 1)**2 / (2 * self.gamma * (self.gamma - 1))
-
         fig, ax = plt.subplots()
         # plotting rho/rho_1, v/v_1, and p/p_1 on the same axis because they range from zero to 1
-        ax.plot(self.xi_arr, rho_over_rho1, label=r'$\rho/\rho_1$')
-        ax.plot(self.xi_arr, v_over_v1, label=r'$v/v_1$')
-        ax.plot(self.xi_arr, p_over_p1, label=r'$p/p_1$')
+        ax.plot(self.xi_arr, self.rho_over_rho1, "C0", label=r'$\rho/\rho_1$')
+        ax.plot(self.xi_arr, self.v_over_v1, "C1", label=r'$v/v_1$')
+        ax.plot(self.xi_arr, self.p_over_p1, "C2", label=r'$p/p_1$')
+        ax.plot(self.xi_arr, self.p_ratio_fit, "C2", label=r'$p/p_1$ fit', linestyle='--')
         ax.set_xlabel(r"$\xi$")
         ax.grid(True)
         ax.legend(loc='center left')
@@ -316,7 +331,7 @@ class TaylorSol:
 
         ## plotting temperature on another axis
         ax2 = ax.twinx()
-        ax2.plot(self.xi_arr, T_over_T1, 'r', label=r'$T/T_1$')
+        ax2.plot(self.xi_arr, self.T_over_T1, 'r', label=r'$T/T_1$')
         ax2.legend(loc='upper center')
         ax2.set_ylim([0, 1000])
         ax2.tick_params(axis='y', colors='r')
