@@ -56,22 +56,18 @@ class selfSimilarSol:
 
 class TaylorSol:
     def __init__(self, 
-                 EBlast: float,             # blast energy released, joules
-                 rDomain: float,            # maximum radius of the domain, meters
                  rho0__kgpm3: float=1.225,  # ambient air density, kg/m^3
                  press0__Pa: float=101325,  # ambient air pressure, Pa
                  npts: int=500,             # number of spatial points to solve for
-                 time_interval: str='quadratic',# time scaling of the problem, either 'linear' or 'quadratic'
                  gamma: float=1.4,          # ratio of specific heats
                  mu__Pas: float=1.789e-5,   # dynamic viscosity, Pascal-seconds
-                 tStart: float=0.0,         # start time in seconds
                  method: str='TNC',         # solution method used
                  ):
         """ Sedov solution """
+        self.npts = npts
         self.gamma = gamma
         self.rho0__kgpm3 = rho0__kgpm3
         self.press0__Pa  = press0__Pa
-        self.EBlast__J   = EBlast
         self.mu__Pas     = mu__Pas
         
         ## looping through xi and solving the system of equation
@@ -139,26 +135,45 @@ class TaylorSol:
         self.beta = (25 / (16 * np.pi * rhs))**(1./5.)
         print(f"For gamma={gamma:.1f}, beta={self.beta:.4f}, total error={self.toterror:.2f}")
 
+    def solve(self,
+              EBlast: float,             # blast energy released, joules
+              rDomain: float,            # maximum radius of the domain, meters
+              time_interval: str='quadratic',# time scaling of the problem, either 'linear' or 'quadratic'
+              tStart: float=0.0,         # start time in seconds
+              debug: bool=False,         # print out debug statement
+              ):
+        """ calculate parameters for a given explosion """
+        self.EBlast__J   = EBlast
+
         ## calculating the time it takes for the shock to reach the end of the domain
-        self.tFinal = np.sqrt( rho0__kgpm3 / EBlast * (rDomain / self.beta)**5 )
-        print(f"For domain size ={rDomain:.2f}m, time-of-shock arrival = {1000*self.tFinal:.2f}ms")
+        self.tFinal = np.sqrt( self.rho0__kgpm3 / EBlast * (rDomain / self.beta)**5 )
+        
+        # calculate the breakdown time - time at which these equations become no longer valid
+        self.p_breakdown = (self.gamma + 1) / (self.gamma - 1) * self.press0__Pa
+        self.t_breakdown = 4 * np.sqrt(2 * self.rho0__kgpm3) * (5 * self.EBlast__J * self.beta**5)**(1./3.) / (25 * self.press0__Pa**(5./6.)) * ( (self.gamma - 1) / (self.gamma + 1)**2 )**(5./6.)
+        self.r_breakdown = self.R_t(self.t_breakdown)
+        
+        if debug:
+            EBlast__MJ = self.EBlast__J / 1e6
+            print(f"For E_blast={EBlast__MJ:.2f}MJ, R_domain={rDomain:.2f}m, shock arrival time={1000*self.tFinal:.2f}ms")
+            print(f"P_breakdown={self.p_breakdown/1e6:.2f}MPa, t_breakdown= {1000*self.t_breakdown:.2f}ms, R_breakdown={self.r_breakdown:.2f}m")
 
         ## setting up spatial and temporal grid
         if time_interval == 'linear':
-            self.tGrid = np.linspace(tStart, self.tFinal, num=npts)
+            self.tGrid = np.linspace(tStart, self.tFinal, num=self.npts)
         elif time_interval == 'quadratic':
-            self.tGrid = np.linspace(np.sqrt(tStart), np.sqrt(self.tFinal), num=npts)**2
+            self.tGrid = np.linspace(np.sqrt(tStart), np.sqrt(self.tFinal), num=self.npts)**2
             # sometimes the final value in tGrid is greater than the final time
             self.tGrid[self.tGrid > self.tFinal] = self.tFinal
         else:
             raise Exception(f"'{time_interval}' is not an acceptable argument for time scaling.")
         
-        self.rGrid = np.linspace(0, rDomain, num=npts)
+        self.rGrid = np.linspace(0, rDomain, num=self.npts)
         self.T, self.R = np.meshgrid(self.tGrid, self.rGrid)
         ## initializing primatives
-        self.rho = np.ones_like(self.T) * rho0__kgpm3
+        self.rho = np.ones_like(self.T) * self.rho0__kgpm3
         self.v   = np.zeros_like(self.T)
-        self.p   = np.ones_like(self.T) * press0__Pa
+        self.p   = np.ones_like(self.T) * self.press0__Pa
 
         ## determining what variables are within the shock
         ShockLoc = self.R_t(self.T) # offsetting shock by incredibly small number to avoid overruns
@@ -166,17 +181,17 @@ class TaylorSol:
         xi = self.R * isInShock / ShockLoc
 
         ## converting xi to primatives
-        rho = rho0__kgpm3 * self.G_xi(xi[isInShock])
+        rho = self.rho0__kgpm3 * self.G_xi(xi[isInShock])
         self.rho[isInShock] = rho
         self.v[isInShock]   = (2 * self.R[isInShock] / (5 * self.T[isInShock])) * self.V_xi(xi[isInShock])
-        self.p[isInShock]  += (rho / gamma) * self.Z_xi(xi[isInShock]) * (2 * self.R[isInShock] / (5 * self.T[isInShock]))**2
+        self.p[isInShock]  += (rho / self.gamma) * self.Z_xi(xi[isInShock]) * (2 * self.R[isInShock] / (5 * self.T[isInShock]))**2
 
         ## rho, v, and p will have nan values at R and T=0, set them to default values
-        self.rho[np.isnan(self.rho)] = rho0__kgpm3
-        self.v[np.isnan(self.v)] = 0.0
-        self.p[np.isnan(self.p)] = press0__Pa
-        self.E = self.p / (self.rho * (gamma - 1)) + 0.5 * self.v**2
-        print("Primative variables calculated")
+        self.rho[np.isnan(self.rho)] = self.rho0__kgpm3
+        self.v[np.isnan(self.v)]     = 0.0
+        self.p[np.isnan(self.p)]     = self.press0__Pa
+        self.E = self.p / (self.rho * (self.gamma - 1)) + 0.5 * self.v**2
+        if debug: print("Primative variables calculated")
 
     # interpolating Z, V, and G vs xi
     def Z_xi(self, xi): return np.interp(xi, self.xi_arr[::-1], self.Z[::-1])
@@ -189,6 +204,10 @@ class TaylorSol:
     def R_t(self, t: float):
         ## function determining shock wave position as a function of time
         return self.beta * (self.EBlast__J * t**2 / self.rho0__kgpm3)**(1./5.)
+    
+    def D_t(self, t: float):
+        """ function for determining shock speed as a function of time. """
+        return 2 * self.beta / 5.0 * (self.EBlast__J / (self.rho0__kgpm3 * t**3))**(1./5.)
     
     def vrt_func(self, t, r):
         """ Return the flow velocity as a function of radial distance and time """
@@ -343,8 +362,8 @@ if __name__ == '__main__':
     Eblast__J  = 1e10   ## blast energy
     rDomain__m = 20     ## domain of the problem
 
-    TS = TaylorSol(Eblast__J, rDomain__m, 
-                   time_interval='quadratic', method='TNC')
+    TS = TaylorSol(method='TNC')
+    TS.solve(Eblast__J, rDomain__m, time_interval='quadratic', debug=True)
     TS.plotSelfSimilar()
     TS.dispFields()
     TS.plotDiscTimes()

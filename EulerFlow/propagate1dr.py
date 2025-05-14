@@ -151,8 +151,8 @@ if __name__ == '__main__':
     Eblast__J  = 1e10   # blast energy
     rDomain__m = 20     # domain of the problem
     #%% resolving the blast flow field
-    TS = TaylorSol(Eblast__J, rDomain__m, 
-                   time_interval='quadratic', method='TNC')
+    TS = TaylorSol(method='TNC')
+    TS.solve(Eblast__J, rDomain__m, time_interval='quadratic')
     TS.plotSelfSimilar()
     TS.dispFields()
     TS.plotDiscTimes()

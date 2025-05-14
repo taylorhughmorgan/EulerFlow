@@ -178,8 +178,9 @@ if __name__ == '__main__':
     from EulerFlow.taylorNeumannSedov import TaylorSol
     # calculating blast energy
     EBlast = (DomainLen__m / 1.033)**5 * (rhoAmb__kgpm3 / tFin__s**2)
-    TS = TaylorSol(Blast.EExpl__J, DomainLen__m, 
-                   rho0__kgpm3=rhoAmb__kgpm3, press0__Pa=PAmb__Pa, npts=1000)
+    TS = TaylorSol(rho0__kgpm3=rhoAmb__kgpm3, press0__Pa=PAmb__Pa, npts=1000)
+    TS.solve(Blast.EExpl__J, DomainLen__m)
+    
     #%% plotting
     test_it = 900
     fig = plt.figure()
