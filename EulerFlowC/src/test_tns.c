@@ -8,7 +8,7 @@
 int main() {
     double rho0_kgpm3 = 1.225;
     double p0_Pa = 101325.0;
-    size_t npts = 10;
+    size_t npts = 100;
     double gamma = 1.4;
     double mu_Pas = 1.789e-5;
     // create taylor solution object
