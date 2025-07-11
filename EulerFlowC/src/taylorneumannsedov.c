@@ -7,6 +7,7 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_min.h>
 #include "taylorneumannsedov.h"
+#include "TVNS_coefs.h"
 
 
 double Z_func(SelfSimilarSol * self, double V) {
@@ -86,7 +87,9 @@ TaylorSol * init_TaylorSol(double rho0_kgpm3, double press0_Pa, size_t npts, dou
     for (size_t i = 0; i < npts; ++i) 
         self->xi_arr->data[i] = 1.0 - delta_xi * i;
     
+    // interpolate based on pre-processed values
     // loop through xi and solve system of equations at each xi
+    /*
     double initial_guess = 2.0 / (gamma + 1.0); // initial guess
     double lower_bound = 1.0 / gamma;
     double upper_bound = 5.0 / (3.0 * gamma - 1.0);
@@ -117,6 +120,8 @@ TaylorSol * init_TaylorSol(double rho0_kgpm3, double press0_Pa, size_t npts, dou
         self->G_arr->data[npts - i] = self->sols.G;
     }
     printf("Self-Similar Solution reached for %zu pts", npts);
+    */
+    printf("Using pre-processed, self-similar solution.\n");
 }
 
 void free_TaylorSol(TaylorSol * self) {
@@ -141,7 +146,7 @@ int minimize(double * guess, double lower_bound, double upper_bound, size_t max_
     F.function = &obj_function;
     F.params = self;
 
-    T = gsl_min_fminimizer_brent;
+    T = gsl_min_fminimizer_quad_golden; //gsl_min_fminimizer_brent;
     s = gsl_min_fminimizer_alloc(T);
 
     // find local minimum first

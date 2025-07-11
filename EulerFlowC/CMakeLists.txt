@@ -15,6 +15,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 set(SOURCES
     src/test_tns.c
     src/taylorneumannsedov.c
+    src/TVNS_coefs.c
 )
 
 add_executable(main ${SOURCES})
