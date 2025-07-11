@@ -185,26 +185,28 @@ if __name__ == '__main__':
     test_it = 900
     fig = plt.figure()
     plt.plot(Blast.r__m, Blast.u[:,test_it], label='numerical')
-    plt.plot(TS.rGrid, TS.v[:,test_it], label='analytical')
+    plt.plot(TS.rGrid, TS.v[:,test_it], 'r.', label='analytical')
     plt.xlabel('radial grid (m)')
     plt.ylabel('velocity (m/s)')
     plt.legend()
     plt.grid(True)
     
     #%% plot max pressure across times
-    fig, ax = plt.subplots(nrows=2)
-    ax[0].semilogy(Blast.r__m, Blast.p.max(axis=1), label='numerical')
+    fig, ax = plt.subplots(nrows=2, sharex=True)
+    ax[0].semilogy(Blast.r__m[::20], Blast.p.max(axis=1)[::20], 'r.', label='numerical')
     ax[0].semilogy(TS.rGrid, TS.p.max(axis=1), label='analytic')
-    ax[0].set_ylabel('pressure (psi)')
+    ax[0].set_ylabel('max pressure (psi)')
     ax[0].legend()
     ax[0].grid(True)
     ax[0].set_ylim([PAmb__Pa, Blast.p.max()])
+
     ## plotting max velocity
-    ax[1].plot(Blast.r__m, Blast.u.max(axis=1), label='numerical')
+    ax[1].plot(Blast.r__m[::20], Blast.u.max(axis=1)[::20], 'r.', label='numerical')
     ax[1].plot(TS.rGrid, TS.v.max(axis=1), label='analytic')
-    ax[1].set_ylabel('velocity (m/s)')
+    ax[1].set_ylabel('max velocity (m/s)')
     ax[1].set_xlabel('radial grid (m)')
     ax[1].grid(True)
     ax[1].set_ylim([0, Blast.u.max()])
+    ax[1].set_xlim([Blast.r__m.min(), Blast.r__m.max()])
 
 # %%
