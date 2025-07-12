@@ -3,7 +3,7 @@
 @date: 2025-07-09
 @description: test the analytical solution to the taylor-Von Neumann-Sedov solution
 */
-#include "taylorneumannsedov.h"
+#include "taylorneumannsedov.hpp"
 
 int main() {
     double rho0_kgpm3 = 1.225;
@@ -14,6 +14,6 @@ int main() {
     // create taylor solution object
     TaylorSol * TS = init_TaylorSol(rho0_kgpm3, p0_Pa, npts, gamma, mu_Pas);
     // free memory
-    //free_TaylorSol(TS);
+    free_TaylorSol(TS);
     return 0;
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(MyCProject C)
+project(MyCProject C CXX)
 
 # GSL required
 find_package(GSL REQUIRED)
@@ -13,8 +13,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 
 # Add executable and source files
 set(SOURCES
-    src/test_tns.c
-    src/taylorneumannsedov.c
+    src/test_tns.cpp
+    src/taylorneumannsedov.cpp
     src/TVNS_coefs.c
 )
 
