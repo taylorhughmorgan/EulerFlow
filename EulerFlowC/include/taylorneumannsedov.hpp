@@ -7,45 +7,25 @@
 #define TAYLORNEUMANNSEDOV_H
 
 #include "mathutils.hpp"
-#include <gsl/gsl_block.h>
-
+#include <vector>
 
 // state variables for self-similar solution
 typedef struct {
     double Z, V, G;
 } SelfSimilarState;
 
-// define self-similar function
-typedef struct SelfSimilar
-{
-    /* Right hand side (RHS) of self-similar solution to the Sedov Von-Nuemann Taylor solution to the Euler eqns */
-    double gamma;           // ratio of specific heats
-    double xi;              // self-similar variable
-    double nu[5];           // nu parameters
-    double (*V_rhs)(struct SelfSimilar *, double);   // right-hand side of V-function
-    double (*G_rhs)(struct SelfSimilar *, double);   // right-hand side of G-function
-    double (*Z_rhs)(struct SelfSimilar *, double);   // right-hand side of Z-function
-    void (*residual)(struct SelfSimilar *, SelfSimilarState, SelfSimilarState*); // residual
-} SelfSimilarSol;
-
-typedef struct 
+class TaylorSol
 {
     // Taylor-Von-Neumann-Sedov solution
+    public:
     size_t npts;
     double gamma;
     double rho0_kgpm3;
     double press0_Pa;
     double mu_Pas;
-    gsl_block *xi_arr, *Z_arr, *V_arr, *G_arr;
-    SelfSimilarState sols;
-    SelfSimilarState residuals;
-} TaylorSol;
-
-TaylorSol * init_TaylorSol(double rho0_kgpm3, double press0_Pa, size_t npts, double gamma, double mu_Pas);
-void free_TaylorSol(TaylorSol * self);
-
-
-// minimization function
-int minimize(double * guess, double lower_bound, double upper_bound, size_t max_iter, SelfSimilarSol * self);
+    std::vector<double> xi_arr;
+    std::vector<SelfSimilarState> sols, res;
+    TaylorSol(double m_rho0_kgpm3, double m_press0_Pa, size_t m_npts, double m_gamma, double m_mu_Pas);
+};
 
 #endif

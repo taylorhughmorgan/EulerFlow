@@ -4,6 +4,7 @@
 @description: test the analytical solution to the taylor-Von Neumann-Sedov solution
 */
 #include "taylorneumannsedov.hpp"
+#include "TVNS_coefs.h"
 
 int main() {
     double rho0_kgpm3 = 1.225;
@@ -12,8 +13,6 @@ int main() {
     double gamma = 1.4;
     double mu_Pas = 1.789e-5;
     // create taylor solution object
-    TaylorSol * TS = init_TaylorSol(rho0_kgpm3, p0_Pa, npts, gamma, mu_Pas);
-    // free memory
-    free_TaylorSol(TS);
+    TaylorSol TS(rho0_kgpm3, p0_Pa, npts, gamma, mu_Pas);
     return 0;
 }

@@ -2,7 +2,6 @@
 #define MATHUTILS_HPP
 
 #include <stdio.h>
-#include <vector>
 #include <math.h>
 
 template<typename T>
@@ -20,4 +19,12 @@ size_t findClosest(const T arr[], size_t n, const T target)
     return left;
 }
 
+template<typename T>
+void reverse_order(const T arr[], size_t npts, T * arr_out)
+{
+    // reverse the order of an array
+    for (size_t i = 0; i < npts; ++i) {
+        arr_out[i] = arr[npts - i - 1];
+    }
+}
 #endif
