@@ -368,4 +368,20 @@ if __name__ == '__main__':
     TS.dispFields()
     TS.plotDiscTimes()
     TS.plotScaledSol()
-# %%
+    # %% save the results to array to use in C
+    fout_name = "TVNS_coeffs.txt"
+    gammas = np.arange(1.10, 1.76, 0.03)
+
+    with open(fout_name, 'w') as fout:
+        # write xi_arr to file
+        fout.write(f"const double xi_arr[{TS.xi_arr.size}] =" + '{' + ', '.join(map(str, TS.xi_arr)) + "};\n")
+        # write gammas to file
+        fout.write(f"const double gammas[{gammas.size}] =" + '{' + ', '.join(map(str, gammas)) + "};\n")
+        fout.write(f"const double TVNS_coefs[{gammas.size}][{TS.npts}] = " + "{\n")
+        # write the minimized solution to file
+        for gamma_tmp in gammas:
+            TS = TaylorSol(gamma=gamma_tmp)
+            V_arr = TS.sols[:,0]
+            fout.write("{" + ', '.join(map(str, V_arr)) +"}, \n")
+        fout.write("};\n")
+        TS.plotSelfSimilar()
