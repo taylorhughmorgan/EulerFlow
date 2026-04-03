@@ -51,8 +51,9 @@ class EulerSol:
                  alpha: list=[0.5, 0.5],        # dissipative flux terms for spatial differencing
                  beta: list=[0.25, 0.5],        # dissipative flux terms for spatial differencing
                  gamma: float=1.4,              # ratio of specific heats
+                 rho_limit: float=1e-6,         # limit density from dropping too low
                  bcs: dict={'rho' : ['gradient:0', 'gradient:0'],
-                            'u'   : ['reflective', 'gradient:0'],
+                            'u'   : ['gradient:0', 'gradient:0'],
                             'E'   : ['gradient:0', 'gradient:0']
                             }
                  ):
@@ -63,6 +64,8 @@ class EulerSol:
         self.size = grid.size
         self.order = order
         self.gamma = gamma
+        self.rho_limit = rho_limit
+        self.press_limit = np.inf
 
         ## spatial differencing and numerical diffusion coefficients
         self.alpha = alpha
@@ -95,11 +98,12 @@ class EulerSol:
         W0 = [rho0 * self.grid**self.order,
               rho0 * v0 * self.grid**self.order,
               rho0 * E0 * self.grid**self.order]
+        self.press_limit = p0.max()
         return np.concatenate(W0)
     
 
-    def conv2Primatives(self, W: np.array):
-        """ Convert W result to primative values """
+    def conv2Primatives(self, W: np.ndarray):
+        """ Convert W results matrix to primative values """
         rho   = W[0:self.size,:].T / self.grid**self.order             # first block contains rho
         rho_U = W[self.size:2*self.size,:].T / self.grid**self.order   # second block contains rho*U
         rho_E = W[2*self.size:,:].T / self.grid**self.order            # third block contains rho*E
@@ -110,14 +114,34 @@ class EulerSol:
         p = rho * (self.gamma - 1) * (E - 0.5 * U**2)
         return rho, U, E, p
     
-    def calc_dt(self, rho: np.array, U: np.array, p: np.array, CFL: float=0.3):
+
+    def conv_state_to_prim(self, W: np.ndarray):
+        """ convert a single state vector to primatives: rho, U, E, and P """
+        rho   = W[0:self.size] / self.grid**self.order             # first block contains rho
+        rho_U = W[self.size:2*self.size] / self.grid**self.order   # second block contains rho*U
+        rho_E = W[2*self.size:] / self.grid**self.order            # third block contains rho*E
+
+        U = rho_U / rho
+        E = rho_E / rho
+        p = rho * (self.gamma - 1) * (E - 0.5 * U**2)
+        # apply limits
+        p[p > self.press_limit] = self.press_limit
+        rho[rho < self.rho_limit] = self.rho_limit
+        return rho, U, E, p
+
+
+    def calc_dt(self, W: np.ndarray, CFL: float=0.3):
         """ Calculate the maximum time step based on the grid size and max wave speed.
             dt = CFL * dx / max_wave_speed = CFL * dx / (|u| + c_s)
         """
         dx_min = self.dr.min()
 
+        # convert y to primitives
+        rho, U, E, p = self.conv_state_to_prim(W)
+
         # calculate sound speed
         cs = np.sqrt(self.gamma * p / rho)
+
         # find the maximum wave speed across the domain
         wave_speed = np.abs(U) + cs
         return CFL * dx_min / wave_speed.max()
@@ -125,13 +149,8 @@ class EulerSol:
     def __call__(self, t, x):
         """
         """
-        rho   = x[0:self.size] / self.grid**self.order             # first block contains rho
-        rho_U = x[self.size:2*self.size] / self.grid**self.order   # second block contains rho*U
-        rho_E = x[2*self.size:] / self.grid**self.order            # third block contains rho*E
-
         ## convert to primatives
-        u = rho_U / rho
-        E = rho_E / rho
+        rho, u, E, p = self.conv_state_to_prim(x)
 
         ## apply boundary conditions
         self.ghostRho[1:-1] = rho
@@ -186,14 +205,14 @@ if __name__ == '__main__':
     ## define grid
     DomainLen__m = 10   # size of the domain
     rMin__m = 0.1
-    tMax__s = 3.25
+    tMax__s = 1.25
     nGridPts = 500
     rGrid = np.linspace(rMin__m, DomainLen__m, num=nGridPts)
     tGrid = np.linspace(0, tMax__s, num=nGridPts)
 
     ## define initial conditions
     P0__Pa      = 1
-    PExpl__Pa   = 70 * P0__Pa
+    PExpl__Pa   = 100 * P0__Pa
     rExpl__m    = 1.5
     rho0__kgpm3 = 1
     
@@ -217,12 +236,11 @@ if __name__ == '__main__':
 
     # loop through integration and time time steps based on CFL
     t = 0
-    rho_t, U_t, p_t = rho0, vr0, p0
 
-    with tqdm(total=tMax__s, desc="Solving", unit="t", bar_format="{l_bar}{bar}| {n:.4f}/{total:.2f} [{elapsed}<{remaining}]") as pbar:
+    with tqdm(total=tMax__s, desc="Solving", unit="t", bar_format="{l_bar}{bar}| {n:.3f}/{total:.2f} [{elapsed}<{remaining}]") as pbar:
         while t < tMax__s:
             # calculate max time step
-            dt_max = ES.calc_dt(rho_t, U_t, p_t)
+            dt_max = ES.calc_dt(y0)
             t_next = min(t + dt_max, tMax__s)
 
             # isolating the solution using a mask
@@ -252,7 +270,11 @@ if __name__ == '__main__':
             # save final time and initial conditions for next iteration
             t = res.t[-1]
             y0 = res.y[:,-1]
-            pbar.update(dt_max)
+
+            # updating the progress bar
+            dt_actual = min(dt_max, tMax__s - t)
+            pbar.update(dt_actual)
+            pbar.set_postfix({"t": f"{t:.2f}", "dt": f"{dt_actual:.2e}"})
 
     ## density plots
     extent = [tGrid.min(), tGrid.max(), rGrid.min(), rGrid.max()]
