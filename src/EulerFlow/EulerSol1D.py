@@ -6,7 +6,6 @@ Description: Solve the 1D Euler equations in cartesian, cylindrical, and polar c
 """
 import numpy as np
 import matplotlib.pyplot as plt
-import time
 from scipy.integrate import solve_ivp
 from EulerFlow.BoundaryConditions import GenerateBCs1D
 from EulerFlow.JamesonShmidtTurkel import JST_DissipFlux, JST_2ndOrderEulerFlux
@@ -111,6 +110,18 @@ class EulerSol:
         p = rho * (self.gamma - 1) * (E - 0.5 * U**2)
         return rho, U, E, p
     
+    def calc_dt(self, rho: np.array, U: np.array, p: np.array, CFL: float=0.3):
+        """ Calculate the maximum time step based on the grid size and max wave speed.
+            dt = CFL * dx / max_wave_speed = CFL * dx / (|u| + c_s)
+        """
+        dx_min = self.dr.min()
+
+        # calculate sound speed
+        cs = np.sqrt(self.gamma * p / rho)
+        # find the maximum wave speed across the domain
+        wave_speed = np.abs(U) + cs
+        return CFL * dx_min / wave_speed.max()
+
     def __call__(self, t, x):
         """
         """
@@ -129,8 +140,6 @@ class EulerSol:
         self.__rhoBC(self.ghostRho, self.ghostGrid)
         self.__uBC(self.ghostU, self.ghostGrid)
         self.__eBC(self.ghostE, self.ghostGrid)
-        #self.__lowerBC(self.ghostRho, self.ghostE, self.ghostU)
-        #self.__upperBC(self.ghostRho, self.ghostE, self.ghostU)
 
         ## apply equations of state
         p = self.ghostRho * (self.gamma - 1) * (self.ghostE - 0.5 * self.ghostU**2)
@@ -170,6 +179,7 @@ class EulerSol:
 
 
 if __name__ == '__main__':
+    from tqdm import tqdm
     from EulerFlow.mathutils import hyperbolic_step
     #%% solving the euler equations for a discrete shock
     orders = 2
@@ -196,13 +206,53 @@ if __name__ == '__main__':
 
     ## set up system of equations
     ES = EulerSol(rGrid, order=orders)
+    # create initial conditions
     y0 = ES.createICs(rho0, vr0, p0)
 
-    res = solve_ivp(ES, [tGrid.min(), tGrid.max()], y0, 
-                    method='RK45',
-                    t_eval=tGrid, )
-    ## extracting primatives
-    rho_t, U_t, E_t, p_t = ES.conv2Primatives(res.y)
+    # array to save whole solution
+    rho_all = np.zeros((rGrid.size, tGrid.size))
+    U_all = np.zeros_like(rho_all)
+    E_all = np.zeros_like(rho_all)
+    p_all = np.zeros_like(rho_all)
+
+    # loop through integration and time time steps based on CFL
+    t = 0
+    rho_t, U_t, p_t = rho0, vr0, p0
+
+    with tqdm(total=tMax__s, desc="Solving", unit="t", bar_format="{l_bar}{bar}| {n:.4f}/{total:.2f} [{elapsed}<{remaining}]") as pbar:
+        while t < tMax__s:
+            # calculate max time step
+            dt_max = ES.calc_dt(rho_t, U_t, p_t)
+            t_next = min(t + dt_max, tMax__s)
+
+            # isolating the solution using a mask
+            mask = (tGrid > t) & (tGrid < t_next)
+            t_sample = tGrid[mask]
+
+            # integrate the system of equations
+            res = solve_ivp(ES, 
+                            [t, t_next], 
+                            y0, 
+                            max_step=dt_max,
+                            #first_step=dt_max,
+                            method='RK45',
+                            dense_output=True
+                            )
+            
+            if len(t_sample) > 0:
+                # extracting primatives
+                rho_t, U_t, E_t, p_t = ES.conv2Primatives(res.sol(t_sample))
+                
+                # adding to big array
+                rho_all[:,mask] = rho_t
+                U_all[:,mask] = U_t
+                E_all[:,mask] = E_t
+                p_all[:,mask] = p_t
+                
+            # save final time and initial conditions for next iteration
+            t = res.t[-1]
+            y0 = res.y[:,-1]
+            pbar.update(dt_max)
 
     ## density plots
     extent = [tGrid.min(), tGrid.max(), rGrid.min(), rGrid.max()]
@@ -216,10 +266,10 @@ if __name__ == '__main__':
         ax.set_title(desc)
         fig.colorbar(cset, ax=ax)
     
-    densPlot(axes[0][0], rho_t, 'density (kg/m^3)')
-    densPlot(axes[0][1], U_t,   'radial velocity (m/s)')
-    densPlot(axes[1][0], E_t,   'total energy (J)')
-    densPlot(axes[1][1], p_t,   'pressure (Pa)')
+    densPlot(axes[0][0], rho_all, 'density (kg/m^3)')
+    densPlot(axes[0][1], U_all,   'radial velocity (m/s)')
+    densPlot(axes[1][0], E_all,   'total energy (J)')
+    densPlot(axes[1][1], p_all,   'pressure (Pa)')
     axes[1][0].set_xlabel('time (ms)')
     axes[1][1].set_xlabel('time (ms)')
     axes[0][0].set_ylabel('r (m)')
@@ -239,10 +289,10 @@ if __name__ == '__main__':
         ax.set_ylabel(desc)
         ax.grid(True)
 
-    linPlot(axes[0][0], rho_t, 'density (kg/m^3)')
-    linPlot(axes[0][1], U_t,   'radial velocity (m/s)')
-    linPlot(axes[1][0], E_t,   'total energy (J)', log=True)
-    linPlot(axes[1][1], p_t,   'pressure (Pa)', log=True)
+    linPlot(axes[0][0], rho_all, 'density (kg/m^3)')
+    linPlot(axes[0][1], U_all,   'radial velocity (m/s)')
+    linPlot(axes[1][0], E_all,   'total energy (J)', log=True)
+    linPlot(axes[1][1], p_all,   'pressure (Pa)', log=True)
     axes[1][0].set_xlabel('r (m)')
     axes[1][1].set_xlabel('r (m)')
     axes[1][0].legend()
